@@ -1,15 +1,15 @@
 {
   "domain": "weather_intelligence",
   "name": "Weather Intelligence",
+  "after_dependencies": ["mqtt", "person", "mobile_app"],
   "codeowners": ["@GrandNagusQuark"],
   "config_flow": true,
-  "single_config_entry": true,
   "dependencies": ["http", "persistent_notification"],
   "documentation": "https://github.com/GrandNagusQuark/weather-intelligence",
-  "after_dependencies": ["mqtt", "person", "mobile_app"],
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/GrandNagusQuark/weather-intelligence/issues",
   "requirements": ["shapely==2.1.2"],
+  "single_config_entry": true,
   "version": "0.1.23-alpha"
 }
