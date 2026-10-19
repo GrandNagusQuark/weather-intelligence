@@ -4,7 +4,7 @@
   "codeowners": ["@GrandNagusQuark"],
   "config_flow": true,
   "single_config_entry": true,
-  "dependencies": ["persistent_notification"],
+  "dependencies": ["http", "persistent_notification"],
   "documentation": "https://github.com/GrandNagusQuark/weather-intelligence",
   "after_dependencies": ["mqtt", "person", "mobile_app"],
   "integration_type": "service",
