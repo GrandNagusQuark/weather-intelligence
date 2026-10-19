@@ -2,7 +2,7 @@
 
 Current version: 0.1.23-alpha.
 
-![Weather Intelligence](custom_components/weather_intelligence/brand/icon.png)
+![Weather Intelligence](https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/brand/icon.png)
 
 Weather alerts that make sense for where you are and what you want to hear about.
 Weather Intelligence brings official National Weather Service alerts, radar and
@@ -102,7 +102,7 @@ Development uses AI assistance under maintainer direction.
 
 ## Support development
 
-<a href="https://www.buymeacoffee.com/Weatherintelligence" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="custom_components/weather_intelligence/frontend/buy-me-a-coffee-blue.png" alt="Buy Me a Coffee" width="217" height="60"></a>
+<a href="https://www.buymeacoffee.com/Weatherintelligence" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/frontend/buy-me-a-coffee-blue.png" alt="Buy Me a Coffee" width="217" height="60"></a>
 
 Support is optional and does not change the alerts or features you receive.
 
