@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <title>Weather Intelligence</title>
+  <defs>
+    <linearGradient id="radar" x1="38" y1="28" x2="200" y2="216" gradientUnits="userSpaceOnUse"><stop stop-color="#65e2cb"/><stop offset="1" stop-color="#18b694"/></linearGradient>
+    <linearGradient id="sweep" x1="122" y1="30" x2="198" y2="75" gradientUnits="userSpaceOnUse"><stop stop-color="#18b694" stop-opacity="0"/><stop offset=".65" stop-color="#18b694" stop-opacity=".12"/><stop offset="1" stop-color="#65e2cb" stop-opacity=".44"/></linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="108" fill="#102338"/>
+  <circle cx="120" cy="120" r="93" stroke="#2d756d" stroke-width="1.5"/>
+  <path d="M120 30a90 90 0 0 1 90 90M120 54a66 66 0 0 1 66 66M120 78a42 42 0 0 1 42 42" stroke="url(#radar)" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  <path d="M120 120 127.844 30.342A90 90 0 0 1 197.942 75Z" fill="url(#sweep)"/>
+  <path d="M120 120 197.942 75" stroke="#65e2cb" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+  <path d="M64 147c-15 0-27-12-27-27s12-27 27-27h5c5-19 22-32 42-32 25 0 45 20 45 45h5c14 0 25 11 25 25s-11 25-25 25h-21" stroke="#f2f7fa" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m119 118-27 42h26l-9 41 38-55h-29l12-28Z" fill="#ffd15c"/>
+</svg>

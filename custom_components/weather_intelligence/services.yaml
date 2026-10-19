@@ -1,0 +1,32 @@
+test_notification:
+  name: Send safe test notification
+  description: >-
+    Creates a local persistent notification that is unmistakably labeled as a test.
+    It does not send or simulate a real weather emergency.
+
+test_mobile_notification:
+  name: Send safe mobile test notification
+  description: >-
+    Sends a TEST ONLY message to exactly the one Companion notification target
+    configured in Weather Intelligence. It never broadcasts and is never called by
+    automatic weather processing.
+
+test_mobile_scenario:
+  name: Review a mobile warning scenario
+  description: >-
+    Manually sends one TEST ONLY tornado-warning lifecycle example to exactly the
+    configured Companion target. It uses isolated recorded data and cannot change
+    live weather state.
+  fields:
+    scenario:
+      required: true
+      example: new_warning
+      selector:
+        select:
+          options:
+            - label: New warning
+              value: new_warning
+            - label: Meaningful update
+              value: meaningful_update
+            - label: Cancellation / resolution
+              value: cancellation

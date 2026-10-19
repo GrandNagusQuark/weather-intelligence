@@ -1,0 +1,104 @@
+{
+  "title": "Weather Intelligence",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up household weather protection",
+        "description": "Create the first explicit person-to-phone profile. Automatic official warnings and critical delivery start off unless you opt in and confirm them.",
+        "data": {
+          "contact": "Contact email or website",
+          "name": "Profile name",
+          "person_entity": "Person",
+          "notify_entity": "Companion notify entity",
+          "legacy_notify_service": "Phone-specific Companion action (advanced)",
+          "mobile_platform": "Phone type", "show_location_on_map": "Location on weather map",
+          "enabled": "Enable this profile",
+          "receive_personal_location_alerts": "Receive alerts for this person's location",
+          "receive_designated_home_alerts_while_away": "Receive designated-home alerts while away",
+          "automatic_official_warning_notifications": "Automatically send qualifying official warnings",
+          "critical_notifications_enabled": "Allow critical delivery",
+          "daily_briefing_enabled": "Send the daily safety briefing",
+          "daily_briefing_location": "Daily briefing location",
+          "hazard_families": "Hazard families"
+        },
+        "data_description": {
+          "contact": "Used only in the identifying User-Agent required by the NWS API.",
+          "legacy_notify_service": "Enables Weather Alert channels, sound treatment, icons, replacement, clearing, and critical behavior. It must belong to the same Companion device."
+        }
+      },
+      "profile_menu": {
+        "title": "Household profiles",
+        "description": "Review or change the explicit people and phone targets. Nothing is auto-enrolled.",
+        "menu_options": {
+          "review_profiles": "Review profiles",
+          "add_profile": "Add profile",
+          "edit_profile": "Edit profile",
+          "remove_profile": "Remove profile",
+          "save_profiles": "Save and reload"
+        }
+      },
+      "review_profiles": {
+        "title": "Review household profiles",
+        "description": "The list shows only profile names and safety switches. Submit to return.",
+        "data": {"profile_summary": "Profiles"}
+      },
+      "add_profile": {"title": "Add a household profile", "data": {"name": "Profile name", "person_entity": "Person", "notify_entity": "Companion notify entity", "legacy_notify_service": "Phone-specific Companion action (advanced)", "mobile_platform": "Phone type", "show_location_on_map": "Location on weather map", "enabled": "Enable this profile", "receive_personal_location_alerts": "Receive alerts for this person's location", "receive_designated_home_alerts_while_away": "Receive designated-home alerts while away", "automatic_official_warning_notifications": "Automatically send qualifying official warnings", "critical_notifications_enabled": "Allow critical delivery", "daily_briefing_enabled": "Send the daily safety briefing", "daily_briefing_location": "Daily briefing location", "hazard_families": "Hazard families"}},
+      "edit_profile": {"title": "Choose a profile to edit", "data": {"profile_id": "Profile"}},
+      "edit_profile_details": {"title": "Edit household profile", "data": {"name": "Profile name", "person_entity": "Person", "notify_entity": "Companion notify entity", "legacy_notify_service": "Phone-specific Companion action (advanced)", "mobile_platform": "Phone type", "show_location_on_map": "Location on weather map", "enabled": "Enable this profile", "receive_personal_location_alerts": "Receive alerts for this person's location", "receive_designated_home_alerts_while_away": "Receive designated-home alerts while away", "automatic_official_warning_notifications": "Automatically send qualifying official warnings", "critical_notifications_enabled": "Allow critical delivery", "daily_briefing_enabled": "Send the daily safety briefing", "daily_briefing_location": "Daily briefing location", "hazard_families": "Hazard families"}},
+      "remove_profile": {"title": "Choose a profile to remove", "data": {"profile_id": "Profile"}},
+      "confirm_remove_profile": {"title": "Remove this profile?", "description": "Removing a profile also discards only that recipient's saved delivery state."},
+      "confirm_automatic": {"title": "Enable automatic official hazards?", "description": "This profile will receive relevant official warnings, watches, and health or behavior notices in its selected hazard families. Source degradation means unknown risk, not no risk."},
+      "confirm_critical": {"title": "Allow critical delivery?", "description": "Critical alerts may bypass silent or Do Not Disturb settings and make sound. Platform permissions and notification-channel settings still apply."},
+      "confirm_initial_automatic": {"title": "Enable automatic official hazards?", "description": "Confirm real delivery for this profile's selected official hazard families. Briefing-only outlooks remain in the daily picture."},
+      "confirm_initial_critical": {"title": "Allow critical delivery?", "description": "Confirm separately that qualifying active warnings may use the Companion apps' documented critical/high-priority fields."}
+    },
+    "error": {
+      "invalid_selection": "Enter a contact, name, one Person, and a Companion target. Critical delivery also requires the phone-specific Companion action.",
+      "invalid_profile": "Check the profile fields. A Person and profile name may be used only once, and critical delivery requires automatic delivery plus the phone-specific Companion action."
+    },
+    "abort": {"already_configured": "Weather Intelligence is already configured.", "authenticated_panel_required": "Open Weather Intelligence → User settings to save profiles with verified account identity and automatic admin-change notices.", "profile_save_changed": "The profile or its account changed. Reopen Weather Intelligence settings and review before saving."}
+  },
+  "options": {
+    "abort": {"authenticated_panel_required": "Open Weather Intelligence → User settings to save profiles with verified account identity and automatic admin-change notices.", "profile_save_changed": "The profile or its account changed. Reopen Weather Intelligence settings and review before saving."},
+    "step": {
+      "profile_menu": {
+        "title": "Household profiles",
+        "description": "Review, add, edit, or remove profiles, then save and reload.",
+        "menu_options": {
+          "review_profiles": "Review profiles",
+          "add_profile": "Add profile",
+          "edit_profile": "Edit profile",
+          "remove_profile": "Remove profile",
+          "save_profiles": "Save and reload"
+        }
+      },
+      "review_profiles": {"title": "Review profiles", "description": "Submit to return.", "data": {"profile_summary": "Profiles"}},
+      "add_profile": {"title": "Add a household profile", "data": {"name": "Profile name", "person_entity": "Person", "notify_entity": "Companion notify entity", "legacy_notify_service": "Phone-specific Companion action (advanced)", "mobile_platform": "Phone type", "show_location_on_map": "Location on weather map", "enabled": "Enable this profile", "receive_personal_location_alerts": "Receive alerts for this person's location", "receive_designated_home_alerts_while_away": "Receive designated-home alerts while away", "automatic_official_warning_notifications": "Automatically send qualifying official warnings", "critical_notifications_enabled": "Allow critical delivery", "daily_briefing_enabled": "Send the daily safety briefing", "daily_briefing_location": "Daily briefing location", "hazard_families": "Hazard families"}},
+      "edit_profile": {"title": "Choose a profile to edit", "data": {"profile_id": "Profile"}},
+      "edit_profile_details": {"title": "Edit household profile", "data": {"name": "Profile name", "person_entity": "Person", "notify_entity": "Companion notify entity", "legacy_notify_service": "Phone-specific Companion action (advanced)", "mobile_platform": "Phone type", "show_location_on_map": "Location on weather map", "enabled": "Enable this profile", "receive_personal_location_alerts": "Receive alerts for this person's location", "receive_designated_home_alerts_while_away": "Receive designated-home alerts while away", "automatic_official_warning_notifications": "Automatically send qualifying official warnings", "critical_notifications_enabled": "Allow critical delivery", "daily_briefing_enabled": "Send the daily safety briefing", "daily_briefing_location": "Daily briefing location", "hazard_families": "Hazard families"}},
+      "remove_profile": {"title": "Choose a profile to remove", "data": {"profile_id": "Profile"}},
+      "confirm_remove_profile": {"title": "Remove this profile?", "description": "Only this recipient's delivery continuity will be discarded."},
+      "confirm_automatic": {"title": "Enable automatic official hazards?", "description": "Confirm real delivery for the profile's selected official hazard families."},
+      "confirm_critical": {"title": "Allow critical delivery?", "description": "Confirm separately that alerts may use critical/high-priority device behavior."}
+    },
+    "error": {
+      "invalid_profile": "Check the profile fields. A Person and name may be used only once; critical requires automatic delivery and the phone-specific Companion action."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "protection_status": {"name": "Protection status"},
+      "primary_incident": {"name": "Primary official incident"},
+      "daily_briefing": {"name": "Daily safety briefing"}
+    }
+  },
+  "services": {
+    "test_notification": {"name": "Send safe local test notification", "description": "Creates a local persistent notification clearly labeled as a test."},
+    "test_mobile_notification": {"name": "Send safe mobile test notification", "description": "Sends a fixed TEST ONLY message when exactly one profile is enabled."},
+    "test_mobile_scenario": {
+      "name": "Review a mobile warning scenario",
+      "description": "Sends one isolated recorded-data warning example when exactly one profile is enabled.",
+      "fields": {"scenario": {"name": "Scenario", "description": "Choose the tornado-warning lifecycle message to review."}}
+    }
+  }
+}
