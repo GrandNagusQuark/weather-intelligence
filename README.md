@@ -1,8 +1,6 @@
 # Weather Intelligence for Home Assistant
 
-Current version: 0.1.24-alpha. This development revision has not been released.
-
-Latest published release: 0.1.23-alpha.
+Current version: 0.1.24-alpha.
 
 ![Weather Intelligence](https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/brand/icon.png)
 
