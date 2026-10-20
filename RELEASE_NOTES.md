@@ -1,6 +1,13 @@
-# Weather Intelligence 0.1.23-alpha
+# Weather Intelligence 0.1.24-alpha
 
-First public alpha for installation through HACS as a custom repository.
+This alpha update fixes the two warnings found during the HACS compliance check.
+
+The manifest now declares its weather alerts category. Setup also uses Home
+Assistant's standard declaration for integrations configured through the UI,
+rather than YAML. No checks are disabled or ignored.
+
+The existing HACS catalog submission remains open. This release does not imply
+catalog approval. You can install it through HACS as a custom repository now.
 
 Includes official NWS alerts, radar, home and travel context, guided notification
 setup, hazard grouped settings, Do Not Disturb choices, optional daily outlooks,

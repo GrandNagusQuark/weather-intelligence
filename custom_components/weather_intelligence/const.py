@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "weather_intelligence"
-PROTOTYPE_VERSION = "0.1.23-alpha"
+PROTOTYPE_VERSION = "0.1.24-alpha"
 
 CONF_CONTACT = "contact"
 CONF_MONITOR_HOME = "monitor_designated_home"
