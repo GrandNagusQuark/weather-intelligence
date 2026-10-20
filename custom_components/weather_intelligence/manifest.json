@@ -2,7 +2,6 @@
   "domain": "weather_intelligence",
   "name": "Weather Intelligence",
   "after_dependencies": ["mqtt", "person", "mobile_app"],
-  "categories": ["weather_alerts"],
   "codeowners": ["@GrandNagusQuark"],
   "config_flow": true,
   "dependencies": ["http", "persistent_notification"],

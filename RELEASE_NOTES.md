@@ -1,10 +1,16 @@
-# Weather Intelligence 0.1.24-alpha
+# Weather Intelligence 0.1.24-alpha candidate
 
-This alpha update fixes the two warnings found during the HACS compliance check.
+This candidate fixes the setup schema warning found during the HACS compliance
+check. It has not been released.
 
-The manifest now declares its weather alerts category. Setup also uses Home
-Assistant's standard declaration for integrations configured through the UI,
-rather than YAML. No checks are disabled or ignored.
+Setup uses Home Assistant's standard declaration for integrations configured
+through the UI, rather than YAML. The checkout action also uses Node.js 24.
+No checks are disabled or ignored.
+
+The remaining HACS category warning cannot currently be removed without failing
+the published Hassfest validator, which rejects the new categories field. The
+field is omitted until that upstream incompatibility is resolved. Publication of
+this candidate is on hold. The current published release remains 0.1.23-alpha.
 
 The existing HACS catalog submission remains open. This release does not imply
 catalog approval. You can install it through HACS as a custom repository now.
