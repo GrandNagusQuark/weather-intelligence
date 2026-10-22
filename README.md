@@ -1,6 +1,6 @@
 # Weather Intelligence for Home Assistant
 
-Current version: 0.1.24-alpha.
+Current version: 0.1.25-alpha.
 
 ![Weather Intelligence](https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/brand/icon.png)
 
@@ -48,7 +48,12 @@ and uncertain clocks are excluded. This does not measure arrival on a phone.
 A shared incident needs independent corroboration. It is not an official NWS
 outage declaration or a promise that every delay will be detected.
 
-## Your privacy
+## Your data and optional reports
+
+Optional reports help me fix bugs and spot problems with weather feeds. They
+provide useful software details without sending names, locations or hardware
+identifiers in the report. This is about explaining what the project uses and
+why, not claiming that other weather integrations are less private.
 
 Settings and location comparisons stay in Home Assistant. Weather and map
 providers receive the location or area needed for their services. Phone delivery

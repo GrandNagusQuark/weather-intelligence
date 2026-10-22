@@ -3,6 +3,11 @@
 Weather Intelligence runs in your Home Assistant. Core weather alert processing
 does not need a project account or a maintainer reporting service.
 
+Optional reports help the maintainer fix bugs and spot problems with weather
+feeds. The report fields are limited to what those tasks need, rather than names,
+locations or hardware identifiers. The sections below explain what stays local,
+what each service receives and the separate choices for sharing reports.
+
 ## Settings and local state
 
 Home Assistant stores device preferences, onboarding progress, saved settings

@@ -155,6 +155,11 @@ async def async_reporting_audit(hass, entry_id):
                     data.setdefault("reporting_setup_errors", {})[entry_id] = "Reporting audit maintenance is unavailable"
 
             entry.async_on_unload(async_track_time_interval(hass, prune, timedelta(hours=1)))
-            entry.async_on_unload(lambda: audits.pop(entry_id, None))
+
+            def remove_cached_audit() -> None:
+                # HA treats a non-None unload result as a coroutine to run.
+                audits.pop(entry_id, None)
+
+            entry.async_on_unload(remove_cached_audit)
             audits[entry_id] = audit
         return audits[entry_id]

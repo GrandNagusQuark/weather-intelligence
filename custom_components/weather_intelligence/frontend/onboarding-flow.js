@@ -3,12 +3,13 @@ import {GUIDED_QUESTIONS,installGuidedSetup} from './onboarding-guided-ui.js?v=6
 import {installAlertSelection,renderSelectableAlerts} from './onboarding-alert-ui.js?v=8';
 import {installDndSetup,renderDndSetup} from './onboarding-dnd-ui.js?v=4';
 import {installSavedDeviceSettings} from './saved-device-settings.js?v=1';
-import {installNotificationSetup} from './onboarding-notifications-ui.js?v=4';
+import {installNotificationSetup} from './onboarding-notifications-ui.js?v=5';
 import {installMarineNearby,renderMarineNearby} from './marine-preferences-ui.js?v=2';
 
 const STAGES={welcome:'welcome-page',choice:'setup-choice-page',device_setup:'device-setup-page',target_device_setup:'device-setup-page',accounts:'setup-users-page',single_device:'single-device-page',multiple_settings:'multiple-device-settings-page',multiple_devices:'multiple-device-select-page',single_device_setup:'single-device-setup-page',intro:'alert-introduction',alert_choices:'alert-choice-page',guided:'guided-question-page',recommendations:'recommendations-page',guided_marine:'guided-marine-page',alert_dnd:'alert-dnd-page',notification_setup:'notification-setup-page'};
 const HEADINGS={welcome:'welcome-heading',choice:'setup-choice-heading',device_setup:'device-setup-heading',target_device_setup:'device-setup-heading',accounts:'setup-users-heading',single_device:'single-device-heading',multiple_settings:'multiple-device-settings-heading',multiple_devices:'multiple-device-select-heading',single_device_setup:'single-device-setup-heading',intro:'alert-introduction-heading',alert_choices:'alert-choice-heading',guided:'guided-question-heading',recommendations:'recommendations-heading',guided_marine:'guided-marine-heading',alert_dnd:'alert-dnd-heading',notification_setup:'notification-setup-heading'};
 Object.assign(STAGES,{dnd_options:'dnd-options-page',dnd_customize:'dnd-customize-page',dnd_confirm:'dnd-confirm-page'});
+STAGES.setup_menu='setup-menu-page';HEADINGS.setup_menu='setup-menu-heading';
 Object.assign(HEADINGS,{dnd_options:'dnd-options-heading',dnd_customize:'dnd-customize-heading',dnd_confirm:'dnd-confirm-heading'});
 STAGES.daily_outlook='daily-outlook-page';HEADINGS.daily_outlook='daily-outlook-heading';
 STAGES.saved_settings='saved-device-settings-page';HEADINGS.saved_settings='saved-device-settings-heading';
@@ -31,6 +32,8 @@ export function alertRiskPresentation(page) {
 export function installProductionOnboarding(panel) {
   const root=panel.shadowRoot,q=selector=>root.querySelector(selector),escape=value=>panel._escape(value);
   const save=update=>panel._saveOnboardingProgress(update);
+  let settingUpOther=false;
+  const openMenu=()=>{settingUpOther=false;panel._welcomeRevisit=true;panel._showSetupStage('setup_menu');};
   const action=(name,extra={})=>save({workflow_action:name,...extra});
   installGuidedSetup(root);
   installDndSetup(root);
@@ -45,6 +48,7 @@ export function installProductionOnboarding(panel) {
       panel._showSetupStage(saved.onboarding.stage);
     },
     done: () => {q('#welcome-onboarding').close();panel._load();},
+    revisit: openMenu,
     about: () => panel._config.about,
     canReviewReporting: () => panel._config.actor?.is_admin===true
       && panel._config.onboarding.target_user_id===panel._config.actor.id,
@@ -66,11 +70,14 @@ export function installProductionOnboarding(panel) {
   bind('#welcome-privacy',event=>{event.preventDefault();panel._showPrivacy();});
   bind('#close-report',()=>q('#official-report').close());
   bind('#begin-onboarding',()=>save({stage:'choice'}));
-  bind('#setup-choice-back',()=>save({stage:'welcome'}));
-  each('[data-setup-mode]',button=>save({mode:button.dataset.setupMode,stage:panel._config.onboarding.target_user_id===panel._config.actor.id?'device_setup':'target_device_setup'}));
+  bind('#setup-menu-own',()=>{settingUpOther=false;save({stage:'choice',target_user_id:panel._config.actor.id});});
+  bind('#setup-menu-other',()=>{if(!panel._config.actor.is_admin)return;settingUpOther=true;save({stage:'choice',target_user_id:panel._config.actor.id});});
+  bind('#setup-menu-resume',()=>panel._showSetupStage(panel._config.onboarding.stage));
+  bind('#setup-choice-back',()=>panel._welcomeRevisit?openMenu():save({stage:'welcome'}));
+  each('[data-setup-mode]',button=>save({mode:button.dataset.setupMode,stage:settingUpOther?'accounts':panel._config.onboarding.target_user_id===panel._config.actor.id?'device_setup':'target_device_setup'}));
   bind('#setup-other-device',()=>save({stage:'accounts',target_user_id:panel._config.actor.id}));
   bind('#device-setup-back',()=>save({stage:panel._config.onboarding.stage==='target_device_setup'?'accounts':'choice'}));
-  bind('#setup-users-back',()=>save({stage:'device_setup',target_user_id:panel._config.actor.id}));
+  bind('#setup-users-back',()=>save({stage:settingUpOther?'choice':'device_setup',target_user_id:panel._config.actor.id}));
   bind('#setup-users-next',()=>save({stage:'target_device_setup'}));
   each('[data-device-count]',button=>save({device_count:button.dataset.deviceCount,stage:button.dataset.deviceCount==='single'?'single_device':'multiple_settings'}));
   each('[data-multiple-settings]',button=>save({stage:'multiple_devices',multiple_settings:button.dataset.multipleSettings}));
@@ -141,6 +148,8 @@ export function installProductionOnboarding(panel) {
     const other=o.target_user_id!==config.actor.id,owner=config.target_user?.name||'selected user';
     q('#admin-edit-notice').hidden=!config.actor.is_admin||!other;
     q('#setup-other-device').hidden=!config.actor.is_admin||other;
+    q('#setup-menu-other').hidden=!config.actor.is_admin;
+    q('#setup-menu-resume').hidden=!o.initiated||['welcome','choice','notification_complete'].includes(o.stage);
     for(const id of ['#device-setup-for','#single-device-for','#multiple-device-for','#multiple-device-selection-for']){
       q(id).hidden=!other;q(id).textContent=other?'Setting up for '+owner:'';
     }

@@ -1,11 +1,23 @@
-# Weather Intelligence 0.1.24-alpha
+# Weather Intelligence 0.1.25-alpha
 
-This update fixes the setup schema declaration and keeps the integration
-compatible with the published Home Assistant validator.
+This update makes the last onboarding screen clearer and gives you a way
+back into setup.
 
-Setup uses Home Assistant's standard declaration for integrations configured
-through the UI, rather than YAML. The checkout action also uses Node.js 24.
-No checks are disabled or ignored.
+The screen now says Onboarding complete and asks you to restart Home Assistant
+to finish applying your setup. It also explains that you do not need another
+restart if you have already restarted since saving. If automatic activation
+failed, that remains visible rather than claiming delivery is ready.
+
+The new Review or change setup button returns to setup without deleting saved
+alerts or repeating phone tests. Your existing alert choices remain in place.
+
+Review setup or add devices now opens a separate menu instead of reopening the
+last completion screen. Administrators can choose to set up another user's
+devices from that menu.
+
+This update also fixes cleanup callbacks that could make Home Assistant fail
+to reload Weather Intelligence after saving setup. A restart is needed to
+recover an installation that has already reached that failed reload state.
 
 The new optional categories field is omitted because the published Hassfest
 validator rejects it. HACS still reports an advisory about that missing field,

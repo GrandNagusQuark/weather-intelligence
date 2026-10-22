@@ -1,4 +1,4 @@
-import {OUTAGE_REPORTING_NOTICE} from './reporting-settings-ui.js?v=5';
+import {OUTAGE_REPORTING_NOTICE} from './reporting-settings-ui.js?v=6';
 const LABELS={unknown:'Not enough current information',available:'Maintainer source check succeeded',
   possible_outage:'Possible service access problem',corroborated_outage:'Shared service access problem corroborated',
   possible_delay:'Possible alert feed delay',corroborated_delay:'Shared alert feed delay corroborated'};

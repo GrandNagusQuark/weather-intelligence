@@ -1,16 +1,16 @@
 import "./weather-map.js?v=individual-alerts-1";
 import {AndroidOnboarding, ANDROID_SOUND_STEPS} from "./android-onboarding.js?v=2";
-import {WELCOME_SCREEN, welcomeRequired} from "./welcome-screen.js?v=34";
-import {installProductionOnboarding} from "./onboarding-flow.js?v=14";
+import {WELCOME_SCREEN, welcomeRequired} from "./welcome-screen.js?v=35";
+import {installProductionOnboarding} from "./onboarding-flow.js?v=15";
 import {installSavedDeviceSettings} from "./saved-device-settings.js?v=1";
 import {renderAdminActionNotice} from "./admin-action-notice.js?v=1";
-import {ProfileAlertEditor} from "./profile-alert-editor.js?v=9";
+import {ProfileAlertEditor} from "./profile-alert-editor.js?v=10";
 import {DEVICE_HELP, accountTiles} from "./device-setup.js?v=5";
 import {renderAlertSetup} from "./alert-setup.js?v=23";
 import {PANEL_NAVIGATION, openHomeAssistantMenu, returnToWeatherIntelligence} from "./panel-navigation.js?v=2";
 import {renderAbout} from "./about-ui.js?v=2";
-import {mountReporting,REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from "./reporting-settings-ui.js?v=5";
-import {mountOutages} from "./outage-settings-ui.js?v=3";
+import {mountReporting,REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from "./reporting-settings-ui.js?v=6";
+import {mountOutages} from "./outage-settings-ui.js?v=4";
 import {FEEDBACK_BAR,mountFeedback} from "./feedback-ui.js?v=1";
 
 export function overviewSummary(summary) {
@@ -103,7 +103,7 @@ class WeatherIntelligencePanel extends HTMLElement {
       <p id="overview-health" role="status"></p>
       <h2>Your household</h2><div id="user-grid" class="user-grid"></div>
       <ha-card><h2>Your day today</h2><div id="outlooks"></div></ha-card>
-      <div class="bottom-actions"><button data-view="general">Settings</button><button data-view="users">User settings</button><button data-view="onboarding" class="primary">Set up or revisit onboarding</button></div>
+      <div class="bottom-actions"><button data-view="general">Settings</button><button data-view="users">User settings</button><button data-view="onboarding" class="primary">Review setup or add devices</button></div>
       <div class="actions"><button id="about-button">About Weather Intelligence</button></div>
       <button id="privacy-button" class="privacy-button">How do we manage your privacy?</button>
     </div>
@@ -290,7 +290,8 @@ class WeatherIntelligencePanel extends HTMLElement {
 
   _openWelcome() {
     const dialog=this.shadowRoot.querySelector("#welcome-onboarding");
-    if(this._config.onboarding?.initiated || this._welcomeInitiated)this._showSetupStage(this._config.onboarding.stage || "choice");
+    if(this._welcomeRevisit || this._config.onboarding?.completed)this._showSetupStage("setup_menu");
+    else if(this._config.onboarding?.initiated || this._welcomeInitiated)this._showSetupStage(this._config.onboarding.stage || "choice");
     if(dialog && !dialog.open)dialog.showModal();
   }
 
@@ -303,7 +304,7 @@ class WeatherIntelligencePanel extends HTMLElement {
 
   _updateOnboardingEntry() {
     const resume=this._config.onboarding?.initiated || this._welcomeInitiated;
-    this.shadowRoot.querySelector("#start-onboarding").textContent=resume?"Resume onboarding":"Start onboarding";
+    this.shadowRoot.querySelector("#start-onboarding").textContent=this._config.onboarding?.completed?"Review setup or add devices":resume?"Resume onboarding":"Start onboarding";
   }
 
   _showWelcomePage(choices) {
@@ -474,7 +475,8 @@ class WeatherIntelligencePanel extends HTMLElement {
   _showPrivacy() {
     this.shadowRoot.querySelector("#dialog-heading").textContent = "Privacy";
     const dialog = this.shadowRoot.querySelector("#official-report");
-    this.shadowRoot.querySelector("#report-content").innerHTML = `<h3>How we manage your privacy</h3>
+    this.shadowRoot.querySelector("#report-content").innerHTML = `<h3>Your data and optional reports</h3>
+      <p>Optional reports help me fix bugs and spot problems with weather feeds. They use limited diagnostic details rather than names, locations or hardware identifiers. Here is what stays local, what services receive and what you can choose to share.</p>
       <p>Weather Intelligence runs inside your Home Assistant. It does not include a developer analytics service or send your household locations, profiles, or alerts to the project developers.</p>
       <h4>Location and visibility</h4><p>Alert routing reads location supplied by the Home Assistant Person entities you enroll; we do not add independent phone tracking. On-water checks compare those locations locally with public water maps. For opted-in water filtering, nearby-water heads-ups or on-water DND rules, regional USGS water maps and, where needed, USACE charted channels are downloaded using coarse map regions rather than exact device coordinates or identities. A bounded cache remains on Home Assistant and drops regions no longer requested. The old worldwide map is no longer bundled; regional coverage is incomplete. Results are estimates, not navigation guidance; stale, inaccurate or shoreline-overlapping fixes may be unavailable. Marine real-time notifications are in an early state and require further testing. The on-or-near-water preference can also qualify a fresh fix within half a mile of mapped shore away from zone.home. Fresh device-linked vehicle activity suppresses that proximity shortcut, but cannot reliably distinguish a boat from a road vehicle. Android Auto alone does not silence mapped-water alerts. Neither account addresses nor a separate location-history store are used for this check. Missing map coverage or an unavailable result does not mean land or safety. Map visibility is separate from opted-in alert delivery.</p>
       <h4>Information needed for services</h4><p>This is not an offline system: NWS and enabled supplemental providers receive the point needed for weather lookups. The configured NWS contact is included in its required identifying request header. NOAA receives the viewed area for radar and warning boundaries. OpenFreeMap supplies road tiles, labels, and styling; its requests reveal the viewed map area and network metadata, but do not include household names, profiles, or alert records. OpenFreeMap's policy describes anonymized access logs, limited error/security IP logs, and possible CDN processing. The browser map renderer is served from your own Home Assistant, not a code CDN. <a href="https://openfreemap.org/privacy/" target="_blank" rel="noopener noreferrer">Read OpenFreeMap's privacy policy</a>. Opening an official discussion requests its public product page.</p>
@@ -484,7 +486,7 @@ class WeatherIntelligencePanel extends HTMLElement {
       <h4>Optional maintainer reports</h4><p>${REPORTING_DISCLOSURE}</p><p>An administrator reviews the exact destination and example fields before enabling it. Changing the destination requires new consent. Turning reporting off cancels queued work but cannot recall a report already received. The local reporting history shows the exact sanitized fields and whether the receiver accepted them.</p>
       <h4>Separate outage contributions</h4><p>${OUTAGE_REPORTING_NOTICE}</p>
       <h4>Your controls</h4><p>Use User settings or revisit onboarding to change delivery, location display, and enrolled targets. This overview currently requires an administrator account; it does not create new access permissions.</p>
-      <h4>Future transparency</h4><p>A destination-by-destination transmission audit log is a planned option, not currently implemented. No audit log is claimed to exist yet.</p>`;
+      <h4>Reporting history</h4><p>Administrators can review the exact prepared error and outage reports, their destination and delivery results in the local reporting history for 30 days. That history covers project reports, not every connection made by Home Assistant or its other integrations.</p>`;
     if (!dialog.open) dialog.showModal();
   }
 

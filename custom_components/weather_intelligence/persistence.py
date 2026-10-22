@@ -205,7 +205,11 @@ async def async_start_profile_reference(hass: Any, entry: Any, store: Any) -> No
     else:
         entry.async_on_unload(hass.bus.async_listen_once("homeassistant_started", reconcile))
     entry.async_on_unload(async_track_time_interval(hass, reconcile, PROFILE_REFERENCE_INTERVAL))
-    entry.async_on_unload(lambda: references.pop(entry.entry_id, None))
+
+    def remove_cached_reference() -> None:
+        references.pop(entry.entry_id, None)
+
+    entry.async_on_unload(remove_cached_reference)
 
 
 class StoredStateError(ValueError):

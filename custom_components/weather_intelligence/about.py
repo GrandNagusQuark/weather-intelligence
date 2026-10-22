@@ -52,6 +52,8 @@ def about_snapshot(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "water maps are estimates, not navigation advice or proof that someone is boating.",
         ],
         "privacy": (
+            "Optional reports help the maintainer fix bugs and spot problems with weather feeds. "
+            "They use limited diagnostic details rather than names, locations or hardware identifiers. "
             "Settings and location comparisons stay in Home Assistant. Weather requests use the "
             "location needed by each provider. Regional map requests use coarse areas. Phone delivery "
             "uses Home Assistant and the phone platform's push services. Optional MQTT diagnostics "

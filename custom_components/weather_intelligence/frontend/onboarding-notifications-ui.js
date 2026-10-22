@@ -1,6 +1,6 @@
 import './android-sound-guide.js?v=2';
 import {ABOUT_STYLE,renderSources} from './about-ui.js?v=1';
-import {REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from './reporting-settings-ui.js?v=4';
+import {REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from './reporting-settings-ui.js?v=6';
 
 export const NOTIFICATION_SCREENS = `
 <style>
@@ -27,7 +27,7 @@ export const NOTIFICATION_SCREENS = `
   <div class="user-step-nav"><button id="notification-review-back" class="setup-back">Back</button><button id="notification-finish" class="primary">Enable alerts and finish</button></div>
 </section>
 <section id="notification-complete-page" hidden aria-labelledby="notification-complete-heading">
-  <div class="welcome-copy"><h2 id="notification-complete-heading">You're set up</h2><p id="notification-complete-message">Your device choices are saved.</p><p>Weather Intelligence supplements your other warning sources.</p></div>
+  <div class="welcome-copy"><h2 id="notification-complete-heading">Onboarding complete</h2><p id="notification-complete-message">Your device choices are saved.</p><p id="notification-restart-note">Please restart Home Assistant to finish applying your setup. If you have already restarted since saving, you do not need to restart again.</p><p>Weather Intelligence supplements your other warning sources.</p></div>
   <style>${ABOUT_STYLE}</style><div class="notification-copy"><details id="notification-source-directory"><summary>Sources of alert information</summary><div id="notification-sources"></div></details></div>
   <div class="notification-copy" id="notification-reporting-offer" hidden>
     <h3>Would you like to share error reports?</h3>
@@ -37,7 +37,7 @@ export const NOTIFICATION_SCREENS = `
     <p class="notification-note">You can choose Done without enabling reporting. Any existing reporting choice is preserved.</p>
   </div>
   <p class="notification-copy notification-note" id="notification-reporting-administrator" hidden>Optional reporting is a separate choice for the Home Assistant installation administrator. Setting up this phone does not enable it.</p>
-  <div class="welcome-actions"><button id="notification-done" class="primary">Done</button></div>
+  <div class="user-step-nav"><button id="notification-revisit" class="setup-back">Review or change setup</button><button id="notification-done" class="primary">Done</button></div>
 </section><p id="notification-status" role="status"></p>`;
 
 export function notificationPhase(device) {
@@ -48,7 +48,7 @@ export function notificationPhase(device) {
   return 'ready';
 }
 
-export function installNotificationSetup(root, {send, escape, done, about=()=>null, canReviewReporting=()=>false, reviewReporting=()=>{}}) {
+export function installNotificationSetup(root, {send, escape, done, revisit=()=>{}, about=()=>null, canReviewReporting=()=>false, reviewReporting=()=>{}}) {
   const placeholder = root.querySelector('#notification-setup-page');
   const template = root.ownerDocument.createElement('template');
   template.innerHTML = NOTIFICATION_SCREENS;
@@ -69,6 +69,7 @@ export function installNotificationSetup(root, {send, escape, done, about=()=>nu
   q('#notification-next').onclick = () => act('next');
   q('#notification-finish').onclick = () => act('finish', {person_id});
   q('#notification-done').onclick = done;
+  q('#notification-revisit').onclick = revisit;
   q('#notification-reporting-review').onclick = reviewReporting;
   q('#notification-person').onchange = event => { person_id = event.target.value; render(current, stage); };
   q('#notification-body').onclick = event => {
@@ -83,6 +84,11 @@ export function installNotificationSetup(root, {send, escape, done, about=()=>nu
       q('#notification-sources').innerHTML=renderSources(about(),{expanded:true});
       q('#notification-reporting-offer').hidden=!canReviewReporting();
       q('#notification-reporting-administrator').hidden=canReviewReporting();
+      q('#notification-complete-message').textContent = view?.activation === 'active'
+        ? 'Your device choices are saved and weather notifications are enabled.'
+        : view?.activation === 'failed'
+        ? 'Your choices are saved, but automatic activation did not complete. Restart Home Assistant before relying on these settings for alerts.'
+        : 'Your device choices are saved. Restart Home Assistant to finish applying your setup.';
     }
     if (!view) return;
     current = view; stage = next_stage;
@@ -142,12 +148,6 @@ export function installNotificationSetup(root, {send, escape, done, about=()=>nu
     q('#notification-person').value = person_id;
     q('#notification-person-help').textContent = !view.people?.length ? 'The selected account needs a linked Home Assistant Person for location-based alerts. An administrator can link one under Settings → People.' : '';
     q('#notification-finish').disabled = busy || !view.can_manage || !person_id || !view.devices?.every(phone => phone.ready);
-    q('#notification-complete-heading').textContent = view.activation === 'active' ? "You're set up" : 'Settings saved';
-    q('#notification-complete-message').textContent = view.activation === 'active'
-      ? 'Your device choices are saved and weather notifications are enabled.'
-      : view.activation === 'failed'
-      ? 'Your choices are saved, but Weather Intelligence could not reload. Reload the integration or restart Home Assistant before relying on delivery.'
-      : 'Your device choices are saved. Notification activation is still pending.';
     q('#notification-status').hidden = !['notification_setup', 'notification_review'].includes(stage);
     q('#notification-status').textContent = message || (busy ? 'Saving…' :
       (phase === 'test' && device.test_status === 'uncertain') || (phase === 'critical' && device.critical_status === 'uncertain')
