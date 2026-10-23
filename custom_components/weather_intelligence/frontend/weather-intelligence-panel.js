@@ -115,7 +115,7 @@ class WeatherIntelligencePanel extends HTMLElement {
       @media(max-width:560px){:host{padding:14px}.user-grid,.bottom-actions{grid-template-columns:1fr}ha-card{padding:16px}.heading{align-items:flex-start}h1{font-size:24px}}
     </style>${PANEL_NAVIGATION}${FEEDBACK_BAR}
     <h1>Weather Intelligence</h1>${renderAdminActionNotice(c.admin_notice,value=>this._escape(value))}
-    ${c.actor?.is_admin&&c.reporting_consent_review_required?'<ha-card role="alert"><h2>Error reporting needs review</h2><p>Reporting is paused until you review the diagnostic details, installation ID, and software versions included with reports. The updated details identify known failure causes and code locations without sending raw logs.</p><button id="review-reporting-consent" class="primary">Review reporting changes</button></ha-card>':''}
+    ${c.actor?.is_admin&&c.reporting_consent_review_required?'<ha-card data-reporting-review-notice role="alert"><h2>Error reporting needs review</h2><p>Reporting is paused until you review the diagnostic details, installation ID, and software versions included with reports. The updated details identify known failure causes and code locations without sending raw logs.</p><button id="review-reporting-consent" class="primary">Review reporting changes</button></ha-card>':''}
     <div id="overview-view">
       <ha-card><div class="heading"><h2>Radar &amp; warning polygons</h2><small>Latest available NOAA/NWS data</small></div><weather-radar-map basemap="openfreemap"></weather-radar-map></ha-card>
       <p id="overview-health" role="status"></p>
@@ -478,6 +478,15 @@ class WeatherIntelligencePanel extends HTMLElement {
       ()=>this._showReporting());
   }
 
+  _applyReportingSnapshot(snapshot) {
+    if(typeof snapshot.consent_review_required !== 'boolean')return;
+    this._config.reporting_consent_review_required=snapshot.consent_review_required;
+    if(!snapshot.consent_review_required){
+      // Update only the notice. Keep the open dialog and unsaved settings intact.
+      this.shadowRoot.querySelector('[data-reporting-review-notice]')?.remove();
+    }
+  }
+
   async _showReporting() {
     const dialog=this.shadowRoot.querySelector('#official-report');
     const root=this.shadowRoot.querySelector('#report-content');
@@ -486,8 +495,13 @@ class WeatherIntelligencePanel extends HTMLElement {
     if(!dialog.open)dialog.showModal();
     try{
       const snapshot=await this._hass.callWS({type:'weather_intelligence/reporting/get'});
+      this._applyReportingSnapshot(snapshot);
       if(dialog.open)mountReporting(root,snapshot,
-        settings=>this._hass.callWS({type:'weather_intelligence/reporting/update',...settings}),
+        async settings=>{
+          const saved=await this._hass.callWS({type:'weather_intelligence/reporting/update',...settings});
+          this._applyReportingSnapshot(saved);
+          return saved;
+        },
         offset=>this._hass.callWS({type:'weather_intelligence/reporting/audit',offset}),()=>this._showOutages());
     }catch{root.textContent='Could not open reporting settings. An administrator account is required.';}
   }

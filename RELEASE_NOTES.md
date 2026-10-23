@@ -1,4 +1,4 @@
-# Weather Intelligence 0.1.33-alpha
+# Weather Intelligence 0.1.34-alpha
 
 This update fixes hail monitoring, makes error reports useful for diagnosing problems, and smooths out setup and everyday settings.
 
@@ -8,6 +8,7 @@ This update fixes hail monitoring, makes error reports useful for diagnosing pro
 - **Useful error reports:** Optional reports now show what failed, the exception and known cause, where it happened in the code, and any available HTTP or system error code. Different problems stay in separate groups. Old reports remain available, but missing details cannot be recovered from them.
 - **Save without losing your place:** Saving settings keeps Weather Intelligence open instead of sending you back to the Home Assistant dashboard.
 - **Dismiss admin notices:** The ADMIN ACTION banner has a Dismiss button. It stays dismissed after refreshing or restarting; a new change can create a new notice.
+- **Review messages clear straight away:** After you accept or decline the updated reporting choice, its review message disappears without refreshing the page. A failed save keeps the message visible.
 - **Android sirens:** Restored the alarm audio route used for urgent sirens. Routine weather notifications keep their normal categories. Setup no longer creates a new numbered category each time.
 - **Setup and editing:** One setup menu brings together quick setup, guided setup, custom setup and editing an existing device. Unfinished setup resumes where it stopped, and administrators can help another household member finish.
 - **Map:** Restored the household markers and legend, improved warning alignment while moving the map, and fixed continuous scrolling east and west.

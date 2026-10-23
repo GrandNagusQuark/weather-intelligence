@@ -4,7 +4,7 @@ from datetime import timedelta
 import re
 
 DOMAIN = "weather_intelligence"
-PROTOTYPE_VERSION = "0.1.33-alpha"
+PROTOTYPE_VERSION = "0.1.34-alpha"
 
 # Companion gives only this literal channel Android alarm audio attributes.
 # A friendly name is not an alias: replacing it changes the audio stream.

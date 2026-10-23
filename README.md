@@ -1,6 +1,6 @@
 # Weather Intelligence for Home Assistant
 
-Current version: 0.1.33-alpha.
+Current version: 0.1.34-alpha.
 
 Optional error reports include recognizable exception types, fixed explanations,
 code locations and applicable HTTP or system error codes. Administrators can see
