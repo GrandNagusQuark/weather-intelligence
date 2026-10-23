@@ -5,7 +5,7 @@ export function saved_setting_options(settings = []) {
   return settings.map(item => `<option value="${escape_text(item.id)}">${escape_text(item.name)}</option>`).join('');
 }
 
-export function installSavedDeviceSettings(panel, {onboarding = false} = {}) {
+export function installSavedDeviceSettings(panel, {onboarding = false, showEntry = true} = {}) {
   const root = panel.shadowRoot;
   const doc = root.ownerDocument;
   const template = doc.createElement('template');
@@ -30,7 +30,7 @@ export function installSavedDeviceSettings(panel, {onboarding = false} = {}) {
   entry.textContent = 'Saved device settings';
   if (onboarding) {
     entry.className = 'setup-back';
-    query('#start-onboarding').after(entry);
+    if (showEntry) query('#start-onboarding').after(entry);
     const screen = doc.createElement('section');
     screen.id = 'saved-device-settings-page';
     screen.hidden = true;
@@ -44,7 +44,7 @@ export function installSavedDeviceSettings(panel, {onboarding = false} = {}) {
     query('#copy-saved-settings-apply').onclick = () => panel._saveOnboardingProgress({workflow_action:'saved_settings_apply', saved_settings_id:query('#copy-saved-settings-select').value, saved_settings_revision:panel._config.onboarding.saved_settings_revision});
     query('#copy-saved-settings-fresh').onclick = () => panel._saveOnboardingProgress({workflow_action:'saved_settings_fresh'});
     query('#copy-saved-settings-back').onclick = () => panel._saveOnboardingProgress({workflow_action:'saved_settings_back'});
-  } else {
+  } else if (showEntry) {
     query('[data-group="general"]').append(entry);
   }
   let manager_view = {settings:[], devices:[]};
@@ -75,7 +75,7 @@ export function installSavedDeviceSettings(panel, {onboarding = false} = {}) {
         panel._config = {...panel._config, ...result.onboarding_snapshot};
         panel._profilesDirty = false;
         panel._renderWelcome();
-        panel._openWelcome();
+        panel._openWelcome(result.onboarding_snapshot.onboarding.stage);
         return;
       }
       manager_view = result;
@@ -102,7 +102,7 @@ export function installSavedDeviceSettings(panel, {onboarding = false} = {}) {
     if (panel._profilesDirty && !confirm('Discard unsaved user-setting edits before restoring saved settings?')) return;
     manage('restore');
   };
-  return {render(onboarding_state, device_names) {
+  return {open: () => entry.onclick(), render(onboarding_state, device_names) {
     if (!onboarding) return;
     const settings = onboarding_state.saved_device_settings || [];
     const selected_id = query('#copy-saved-settings-select').value;

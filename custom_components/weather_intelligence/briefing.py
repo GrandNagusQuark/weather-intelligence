@@ -158,7 +158,11 @@ def briefing_delivery_due(
     *,
     allow_same_day_worsening: bool = False,
 ) -> bool:
-    """Allow the scheduled briefing plus rate-limited same-day worsening."""
+    """Retry today's scheduled briefing until accepted, never send a second one.
+
+    The legacy worsening argument remains for callers from older test tools.
+    Worsening weather uses the separate hazard delivery path, not a second daily.
+    """
     try:
         hour, minute = (int(value) for value in scheduled_time.split(":", 1))
     except (AttributeError, ValueError):
@@ -167,24 +171,14 @@ def briefing_delivery_due(
         hour, minute = 7, 0
     scheduled = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     today = local_now.date().isoformat()
+    if local_now < scheduled:
+        return False
     if prior is not None and prior.local_date == today and prior.pending:
         return (
             prior.last_attempt_at is None
             or local_now - prior.last_attempt_at >= timedelta(minutes=15)
         )
-    if scheduled <= local_now < scheduled + timedelta(minutes=15):
-        return prior is None or prior.local_date != today
-    if (
-        prior is None
-        or prior.local_date != today
-        or not allow_same_day_worsening
-        or prior.content_fingerprint == fingerprint
-        or urgency >= prior.urgency
-    ):
-        return False
-    if prior.delivered_at is None:
-        return True
-    return local_now - prior.delivered_at >= timedelta(hours=3)
+    return prior is None or prior.local_date != today
 
 
 def incidents_for_subjects(

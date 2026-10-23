@@ -63,6 +63,9 @@ The entry supports one installation. Normal users edit their own settings throug
 the authenticated panel. An administrator can select another account. Saving an
 enrollment or change to another account queues a notice to that person, including
 the administrator's name. Opening a screen or canceling a draft does not send it.
+The recipient can choose Dismiss on the notice. It stays dismissed across page
+refreshes and restarts; a later administrator change gets its own new notice.
+Dismiss does not reload the integration or discard unsaved form changes.
 
 ## Multiple devices and saved settings
 
@@ -75,7 +78,61 @@ Review alert receipt and DND choices separately. The DND review explains which
 conditions may interrupt the phone. The integration cannot prove that operating
 system permissions still work just because a test was confirmed earlier.
 
+## Android sound and Do Not Disturb
+
+Weather Siren is the feature name. The category shown in Android settings is
+`alarm_stream`. That exact name matters: Companion gives it alarm audio behavior.
+A custom category called Weather Siren is not an equivalent rename.
+
+1. On Samsung, open Settings → Notifications → Advanced settings and enable
+   Manage notification categories for each app if categories are hidden.
+2. Open Settings → Apps → Home Assistant → Notifications → Notification
+   categories. Open `alarm_stream`, keep it enabled, select Alert and choose
+   your sound. The exact menu labels vary by Android and One UI version.
+3. In the phone's Do Not Disturb settings, allow Alarms. Do not add the whole
+   Home Assistant app as an exception. Some Samsung versions do not offer an
+   Ignore DND switch on each category; these instructions do not depend on it.
+4. In Weather Intelligence, choose Review setup or add devices → Edit existing
+   setup and select the phone. An unfinished setup resumes where it stopped.
+   For a completed setup, choose Mobile alert permissions.
+5. When it is safe to make sound, run one tone-and-speech test with the phone
+   locked and DND enabled. Confirm both parts on the phone. Sending successfully
+   does not prove the phone played them.
+
+If `alarm_stream` is missing, use Create siren category in the permission screen.
+That notification may play its saved sound. Opening or saving Android setup does
+not send it automatically. The illustrated guide uses older Samsung screenshots
+with Weather Siren labels; follow the current written category name instead.
+
+Only the alerts selected for critical delivery use the alarm route. Weather
+Alerts, Weather Awareness, Weather All Clear, Weather Briefing and Weather Setup
+stay on normal notification channels. The integration does not grant a phone
+permission or override every possible DND mode. iPhones use Apple's Critical
+Alerts permission, not Android categories.
+
+### Existing Android installations
+
+The correction restores alarm audio after the earlier change from `alarm_stream`
+to a custom Weather Siren category. After installing the corrected update,
+affected installations show one persistent Home Assistant notice asking for
+phone setup to be reviewed. Existing devices and alert choices are retained.
+The update does not send an audible test or claim new phone checks have passed.
+
+New setup no longer generates numbered Weather Siren or Weather Setup names.
+Remove old categories only after they are no longer used by the saved profile.
+Companion's `remove_channel` command hides an old category but retains its phone
+settings; a later message using that exact old name can bring it back. Do not
+clear Companion app data to clean up categories. See the official
+[alarm-stream guidance](https://companion.home-assistant.io/docs/notifications/critical-notifications/#alarm-stream)
+and [channel-removal guidance](https://companion.home-assistant.io/docs/notifications/notifications-basic/#removing-a-channel).
+
 ## Updating
+
+Saving settings is not an update or an uninstall. Weather Intelligence applies
+the saved choices in the background and keeps its sidebar entry and current
+screen open. If activation fails, the message says the choices were saved but
+are not active and tells you to restart Home Assistant. A successful save should
+not send you to the Home Assistant dashboard.
 
 Keep a full backup and note the installed version. Stop if the candidate's source
 or provenance is unclear. Replace the complete integration folder with the matching
@@ -95,7 +152,11 @@ AirNow needs an API key. No UV provider is connected in this build.
 MQTT error forwarding is optional and sends to your configured broker. It does
 not deliver reports to the maintainer. Optional maintainer reporting uses
 https://reports.weatherintelligence.app/v1/errors after destination review and
-explicit consent. Outage contributions have their own choice and random ID.
+explicit consent. Error reports use a locally generated random installation
+number to group repeated errors. Outage contributions have their own choice and
+use that same number. Existing reporting pauses for renewed consent when this
+field is added. Administrators can review the exact prepared reports and their
+delivery results in the local audit log for 30 days.
 Receiving service notices does not require sharing reports. Outage DND bypass is
 a separate device choice with local severe weather conditions. Do not paste
 credentials into issue reports.

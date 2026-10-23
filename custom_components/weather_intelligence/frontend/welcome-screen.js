@@ -43,14 +43,6 @@ export const WELCOME_SCREEN = `<style>
   <button id="welcome-close" class="close-dialog" aria-label="Close welcome">Close</button>
   <img class="weather-logo" src="/weather_intelligence_static/weather-logo.svg" alt="" width="100" height="100">
   <p id="admin-edit-notice" role="note" hidden style="max-width:510px;margin:0 auto 20px;line-height:1.5">Changes you save to another user’s settings will automatically notify that user.</p>
-  <section id="setup-menu-page" hidden aria-labelledby="setup-menu-heading">
-    <div class="welcome-copy"><h2 id="setup-menu-heading">Review setup or add devices</h2><p>Choose whose devices you want to set up. Your saved choices are kept while you review setup.</p></div>
-    <div class="welcome-actions">
-      <button id="setup-menu-own" class="setup-choice"><strong>Set up or review my devices</strong><span>Revisit your choices or add another device to your account.</span></button>
-      <button id="setup-menu-other" class="setup-choice" hidden><strong>Set up devices for another user</strong><span>Choose a setup method, then select their Home Assistant account.</span></button>
-      <button id="setup-menu-resume" hidden>Continue saved setup</button>
-    </div>
-  </section>
   <section id="welcome-page"><div class="welcome-copy"><h2 id="welcome-heading">Welcome to Weather Intelligence</h2><p>We'll guide you through setup, one step at a time.</p></div>
   <div class="welcome-actions"><button id="begin-onboarding" class="primary">Begin onboarding</button></div><a id="welcome-privacy" class="welcome-privacy-link" href="#weather-intelligence-privacy">How do we manage your privacy?</a></section>
   <section id="setup-choice-page" hidden aria-labelledby="setup-choice-heading"><div class="welcome-copy"><h2 id="setup-choice-heading">How would you like to set up?</h2></div><div class="welcome-actions">

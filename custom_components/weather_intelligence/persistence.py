@@ -203,7 +203,22 @@ async def async_start_profile_reference(hass: Any, entry: Any, store: Any) -> No
     if hass.is_running:
         await reconcile()
     else:
-        entry.async_on_unload(hass.bus.async_listen_once("homeassistant_started", reconcile))
+        remove_startup = None
+
+        async def started(event):
+            nonlocal remove_startup
+            # HA already removed its one-shot listener before invoking us.
+            remove_startup = None
+            await reconcile(event)
+
+        def cancel_startup():
+            nonlocal remove_startup
+            if remove_startup is not None:
+                remove, remove_startup = remove_startup, None
+                remove()
+
+        remove_startup = hass.bus.async_listen_once("homeassistant_started", started)
+        entry.async_on_unload(cancel_startup)
     entry.async_on_unload(async_track_time_interval(hass, reconcile, PROFILE_REFERENCE_INTERVAL))
 
     def remove_cached_reference() -> None:
@@ -236,6 +251,7 @@ def serialize_runtime_state(
                 "delivered_at": _iso(item.delivered_at),
                 "pending": item.pending,
                 "last_attempt_at": _iso(item.last_attempt_at),
+                "confirmed_at": _iso(item.confirmed_at),
             }
             for item in briefing_deliveries
         ],
@@ -294,6 +310,7 @@ def deserialize_briefing_delivery_state(
                 delivered_at=_datetime(item.get("delivered_at")),
                 pending=bool(item.get("pending", False)),
                 last_attempt_at=_datetime(item.get("last_attempt_at")),
+                confirmed_at=_datetime(item.get("confirmed_at")),
             )
             for item in document.get("briefing_deliveries", [])
         ]

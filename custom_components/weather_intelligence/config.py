@@ -7,6 +7,9 @@ from uuid import uuid4
 from .marine_preferences import MARINE_NEARBY_FIELDS, marine_nearby_preferences
 
 from .const import (
+    ANDROID_SIREN_CHANNEL,
+    ANDROID_SIREN_REVIEW_PENDING,
+    android_siren_channel,
     BRIEFING_LOCATION_HOME,
     BRIEFING_LOCATIONS,
     CONF_CONTACT,
@@ -89,6 +92,34 @@ def effective_entry_config(entry: Any) -> dict[str, Any]:
     return effective
 
 
+def migrate_android_siren_channels(hass: Any, entry: Any) -> bool:
+    """Persist only the known Android siren routing correction, without sends.
+
+    Do not change enrollment, DND choices, targets, or phone-test confirmations.
+    The changed profile binding makes revisited onboarding request fresh checks.
+    """
+    config = effective_entry_config(entry)
+    profiles = config.get(CONF_PROFILES, [])
+    pending = set(config.get(ANDROID_SIREN_REVIEW_PENDING, []))
+    changed = False
+    replacements = []
+    for profile in profiles:
+        replacement = dict(profile)
+        channel = profile.get("urgent_channel", ANDROID_SIREN_CHANNEL)
+        if profile.get(CONF_MOBILE_PLATFORM) == "android" and isinstance(channel, str):
+            corrected = android_siren_channel(channel)
+            if corrected != channel:
+                replacement["urgent_channel"] = corrected
+                if profile.get("profile_id"):
+                    pending.add(profile["profile_id"])
+                changed = True
+        replacements.append(replacement)
+    if changed:
+        hass.config_entries.async_update_entry(entry, options={**entry.options,
+            CONF_PROFILES: replacements, ANDROID_SIREN_REVIEW_PENDING: sorted(pending)})
+    return changed
+
+
 def normalize_profile_input(
     user_input: Mapping[str, Any], *, existing_id: str | None = None,
     allow_missing_target: bool = False,
@@ -140,7 +171,7 @@ def normalize_profile_input(
             "Critical delivery requires the phone-specific Companion action"
         )
     device_id = user_input.get("companion_device_id", "")
-    urgent_channel = user_input.get("urgent_channel", "Weather Siren")
+    urgent_channel = user_input.get("urgent_channel", ANDROID_SIREN_CHANNEL)
     outlook_time = user_input.get("daily_outlook_time", "")
     rule_ids = user_input.get("dnd_rule_ids")
     life_events = user_input.get("life_safety_events", [])
@@ -150,6 +181,8 @@ def normalize_profile_input(
         raise ValueError("Invalid Companion registration")
     if not isinstance(urgent_channel, str) or not urgent_channel.strip() or len(urgent_channel) > 100:
         raise ValueError("Invalid notification category")
+    if mobile_platform == "android":
+        urgent_channel = android_siren_channel(urgent_channel)
     if not isinstance(outlook_time, str) or (outlook_time and (len(outlook_time) != 5 or
                          outlook_time[2] != ":" or not outlook_time[:2].isdigit() or
                          not outlook_time[3:].isdigit() or int(outlook_time[:2]) > 23 or int(outlook_time[3:]) > 59)):

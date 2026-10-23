@@ -16,6 +16,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .automatic_delivery import HouseholdDeliveryRouter
 from .acknowledgements import Acknowledgements
+from .briefing_receipts import briefing_tag, received_briefing_profile
 from .briefing import (
     DailyBriefing,
     briefing_delivery_due,
@@ -138,6 +139,8 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         self.acknowledgements = Acknowledgements()
         self._delivery = HouseholdDeliveryRouter(hass, profiles, self.acknowledgements)
         self._ack_unsubscribe = None
+        self._briefing_receipt_unsubscribe = None
+        self._briefing_delivery_lock = asyncio.Lock()
         self._briefing_time = briefing_time
         self._source_options = dict(source_options or {})
         self._hail_client = hail_client
@@ -213,6 +216,17 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         if self._ack_unsubscribe is None and bus is not None:
             self._ack_unsubscribe = bus.async_listen(
                 "mobile_app_notification_action", self._async_acknowledge)
+        if self._briefing_receipt_unsubscribe is None and bus is not None:
+            self._briefing_receipt_unsubscribe = bus.async_listen(
+                "mobile_app_notification_received", self._async_briefing_received)
+
+    async def _async_briefing_received(self, event: Any) -> None:
+        profile_id = received_briefing_profile(self.hass, self._profiles, self._briefing_records, event.data)
+        if profile_id is None:
+            return
+        self._briefing_records[profile_id] = replace(
+            self._briefing_records[profile_id], confirmed_at=datetime.now(timezone.utc))
+        await self.async_save_state()
 
     async def _async_acknowledge(self, event: Any) -> None:
         result = self.acknowledgements.consume(event.data.get("action"),
@@ -236,6 +250,9 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         if self._ack_unsubscribe is not None:
             self._ack_unsubscribe()
             self._ack_unsubscribe = None
+        if self._briefing_receipt_unsubscribe is not None:
+            self._briefing_receipt_unsubscribe()
+            self._briefing_receipt_unsubscribe = None
         for profile in self._profiles:
             cancel_profile_audio(self.hass, profile.profile_id)
         await self.async_save_state()
@@ -282,8 +299,10 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         successes: list[tuple[NwsResponse, set[str]]] = []
         failures = 0
         failure_details: set[str] = set()
+        last_failure = None
         for (_point, subjects), result in zip(query_items, results, strict=True):
             if isinstance(result, (NwsClientError, AlertNormalizationError)):
+                last_failure = result
                 failures += 1
                 failure_details.add(_safe_failure_detail(result))
                 continue
@@ -291,7 +310,8 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                 raise result
             try:
                 _feature_list(result.payload)
-            except AlertNormalizationError:
+            except AlertNormalizationError as error:
+                last_failure = error
                 failures += 1
                 continue
             successes.append((result, subjects))
@@ -302,6 +322,7 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
             _LOGGER.error(
                 "Every direct NWS active-alert request failed for this polling cycle (%s).",
                 "; ".join(sorted(failure_details)) or "unknown error",
+                extra={"wi_exception": last_failure},
             )
             status = self.core.record_source_failure(
                 "All required NWS point requests failed.", now
@@ -379,6 +400,7 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                 "%d direct NWS active-alert request(s) failed while other monitored points succeeded (%s).",
                 failures,
                 "; ".join(sorted(failure_details)) or "unknown error",
+                extra={"wi_exception": last_failure},
             )
             self.core.record_source_degraded(
                 "At least one NWS point request failed; retained incidents were not cleared.",
@@ -433,11 +455,14 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         except (MrmsHailError, OSError, ValueError, TypeError) as error:
             self.hail_tracking_state = "degraded"
             _LOGGER.error(
-                "Direct NOAA MRMS hail request failed: %s", type(error).__name__
+                "Direct NOAA MRMS hail request failed: %s", str(error) if isinstance(error, MrmsHailError) else type(error).__name__,
+                extra={"wi_exception": error},
             )
             return
         if frame is None:
-            if self.hail_tracking_state == "initializing":
+            if self.hail_last_observed_at is None or (now - self.hail_last_observed_at).total_seconds() > MRMS_MAX_AGE_SECONDS:
+                self.hail_tracking_state = "stale"
+            else:
                 self.hail_tracking_state = "healthy"
             return
         age_seconds = (now - frame.observed_at).total_seconds()
@@ -701,6 +726,10 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         return result
 
     async def _async_deliver_briefing(self, now: datetime) -> None:
+        async with self._briefing_delivery_lock:
+            await self._async_deliver_scheduled_briefing(now)
+
+    async def _async_deliver_scheduled_briefing(self, now: datetime) -> None:
         try:
             local_now = now.astimezone(ZoneInfo(str(self.hass.config.time_zone)))
         except (AttributeError, ValueError):
@@ -770,54 +799,62 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                 _briefing_items_fingerprint(same_day_items),
             )
             urgency = _briefing_urgency(same_day_briefing)
-            separate_urgent_delivery = any(
-                item.behavior in {DeliveryBehavior.CRITICAL, DeliveryBehavior.IMPORTANT}
-                or (
-                    item.family == "severe_convection"
-                    and _explicit_severe_potential(item)
-                )
-                for item in same_day_items
-            )
             prior = self._briefing_records.get(profile.profile_id)
             today = local_now.date().isoformat()
             if not briefing_delivery_due(
                 prior, local_now, profile.daily_outlook_time or self._briefing_time,
                 same_day_briefing.fingerprint, urgency,
-                allow_same_day_worsening=(
-                    bool(same_day_items) and not separate_urgent_delivery
-                ),
             ):
+                continue
+            midnight = (local_now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            remaining = int((midnight.astimezone(timezone.utc) - local_now.astimezone(timezone.utc)).total_seconds())
+            if remaining <= 0:
+                continue
+            # A durable pre-send claim prevents an uncertain send being repeated
+            # after a crash. Definite failures are marked pending for retry.
+            claim = BriefingDeliveryRecord(profile.profile_id, today,
+                same_day_briefing.fingerprint, urgency, None, False, local_now)
+            self._briefing_records[profile.profile_id] = claim
+            try:
+                await self.async_save_state()
+            except Exception:
+                if prior is None:
+                    self._briefing_records.pop(profile.profile_id, None)
+                else:
+                    self._briefing_records[profile.profile_id] = prior
+                _LOGGER.error("Daily briefing paused because its delivery record could not be saved.")
                 continue
             try:
                 await async_send_profile_notification(
                     self.hass, profile, title=title, message=message,
-                    stable_tag=f"weather_intelligence_daily_{profile.profile_id}",
+                    stable_tag=briefing_tag(profile.profile_id, today),
                     critical=False, behavior=DeliveryBehavior.BRIEFING_ONLY,
+                    timeout_seconds=remaining, delivery_ttl_seconds=remaining,
+                    delivery_expiration=int(midnight.timestamp()),
+                    request_confirmation=profile.mobile_platform == "android",
                 )
             except MobileTargetError as error:
                 _LOGGER.error(
                     "Daily briefing delivery failed for one configured profile: %s",
                     error,
                 )
+                receipt = self._briefing_records[profile.profile_id].confirmed_at
                 self._briefing_records[profile.profile_id] = BriefingDeliveryRecord(
                     profile.profile_id,
                     today,
                     same_day_briefing.fingerprint,
                     urgency,
-                    prior.delivered_at if prior else None,
-                    True,
+                    local_now if receipt else prior.delivered_at if prior else None,
+                    error.retry_safe and receipt is None,
                     local_now,
+                    receipt,
                 )
+                await self.async_save_state()
                 continue
-            self._briefing_records[profile.profile_id] = BriefingDeliveryRecord(
-                profile.profile_id,
-                today,
-                same_day_briefing.fingerprint,
-                urgency,
-                local_now,
-                False,
-                local_now,
-            )
+            # Keep any receipt which arrived while the service call was awaiting.
+            self._briefing_records[profile.profile_id] = replace(
+                self._briefing_records[profile.profile_id], delivered_at=local_now)
+            await self.async_save_state()
 
     async def _async_refresh_water(self, now: datetime) -> None:
         states = self.hass.states.async_all("person")

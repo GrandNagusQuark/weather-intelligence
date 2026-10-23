@@ -118,6 +118,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
         build_nws_user_agent,
         effective_entry_config,
         has_mobile_test_target,
+        migrate_android_siren_channels,
         profiles_from_config,
     )
     from .const import (
@@ -140,6 +141,16 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     reference_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.profiles")
     await async_apply_requested_reset(hass, entry, store,
         additional_stores=(Store(hass, 1, f"{DOMAIN}.avalanche_regions"), reference_store))
+    # Restore the alarm route before runtime profiles/reference fingerprints load.
+    migrate_android_siren_channels(hass, entry)
+    from .const import (ANDROID_SIREN_REVIEW_PENDING, ANDROID_SIREN_REVIEW_NOTIFICATION,
+                        ANDROID_SIREN_REVIEW_MESSAGE)
+    if effective_entry_config(entry).get(ANDROID_SIREN_REVIEW_PENDING):
+        from homeassistant.components import persistent_notification
+        # One stable local notice, not a new phone push after every restart.
+        persistent_notification.async_create(hass, ANDROID_SIREN_REVIEW_MESSAGE,
+            title="Weather Intelligence: review Android siren setup",
+            notification_id=ANDROID_SIREN_REVIEW_NOTIFICATION)
     from .persistence import async_start_profile_reference
     await async_start_profile_reference(hass, entry, reference_store)
     effective = effective_entry_config(entry)

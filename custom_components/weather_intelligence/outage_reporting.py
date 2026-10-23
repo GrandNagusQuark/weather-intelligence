@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-import secrets
 import time
 
 from .config import effective_entry_config
@@ -11,6 +10,7 @@ from .outage_protocol import OUTAGE_PATH, STATUS_PATH, PROJECT_ORIGIN, OUTAGE_PO
 from .reporting_config import reporting_config
 from .reporting_http import ReportTransport
 from .reporting_audit import async_reporting_audit
+from .reporting_identity import async_reporting_identity
 
 OUTAGE_KEY = "outage_reporting"
 STARTUP_GRACE_SECONDS = 600
@@ -50,15 +50,7 @@ class OutageReporting:
         return reporting_config(config)["enabled"] and outage_config(config)["enabled"]
 
     async def initialize(self):
-        if self.permitted():
-            saved = await self.identity_store.async_load()
-            identifier = saved.get("installation_id") if isinstance(saved, dict) else None
-            import re
-            self.installation_id = identifier if isinstance(identifier, str) and re.fullmatch(r"[a-f0-9]{64}", identifier) else secrets.token_hex(32)
-            await self.identity_store.async_save({"installation_id": self.installation_id})
-        else:
-            # No identity is created for someone who only reads service status.
-            await self.identity_store.async_remove()
+        self.installation_id = await async_reporting_identity(self.hass,self.entry,self.identity_store)
 
     async def tick(self):
         if self.stopped:

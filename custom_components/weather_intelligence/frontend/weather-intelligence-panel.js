@@ -1,17 +1,17 @@
-import "./weather-map.js?v=individual-alerts-1";
-import {AndroidOnboarding, ANDROID_SOUND_STEPS} from "./android-onboarding.js?v=2";
-import {WELCOME_SCREEN, welcomeRequired} from "./welcome-screen.js?v=35";
-import {installProductionOnboarding} from "./onboarding-flow.js?v=15";
-import {installSavedDeviceSettings} from "./saved-device-settings.js?v=1";
-import {renderAdminActionNotice} from "./admin-action-notice.js?v=1";
-import {ProfileAlertEditor} from "./profile-alert-editor.js?v=10";
+import "./weather-map.js?v=aligned-world-4";
+import {AndroidOnboarding, ANDROID_SOUND_STEPS} from "./android-onboarding.js?v=5";
+import {WELCOME_SCREEN, welcomeRequired} from "./welcome-screen.js?v=36";
+import {installProductionOnboarding} from "./onboarding-flow.js?v=19";
+import {renderAdminActionNotice,bindAdminActionNotice} from "./admin-action-notice.js?v=2";
+import {ProfileAlertEditor} from "./profile-alert-editor.js?v=14";
 import {DEVICE_HELP, accountTiles} from "./device-setup.js?v=5";
 import {renderAlertSetup} from "./alert-setup.js?v=23";
 import {PANEL_NAVIGATION, openHomeAssistantMenu, returnToWeatherIntelligence} from "./panel-navigation.js?v=2";
 import {renderAbout} from "./about-ui.js?v=2";
-import {mountReporting,REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from "./reporting-settings-ui.js?v=6";
-import {mountOutages} from "./outage-settings-ui.js?v=4";
-import {FEEDBACK_BAR,mountFeedback} from "./feedback-ui.js?v=1";
+import {mountReporting,REPORTING_DISCLOSURE,OUTAGE_REPORTING_NOTICE} from "./reporting-settings-ui.js?v=9";
+import {mountReportingAudit} from "./reporting-audit-ui.js?v=2";
+import {mountOutages} from "./outage-settings-ui.js?v=5";
+import {FEEDBACK_BAR,mountFeedback} from "./feedback-ui.js?v=2";
 
 export function overviewSummary(summary) {
   // Compatibility with the older API wording; health belongs outside the forecast.
@@ -22,6 +22,23 @@ export function overviewSummary(summary) {
 export function sourceHealthNote(outlook) {
   const states=Object.values(outlook.sources || {});
   return states.some(state=>state === "degraded" || state === "stale") ? "Some enabled weather sources are unavailable or outdated." : "";
+}
+
+export function mapPeople(dashboard, profiles, states, now = Date.now()) {
+  // A stationary Person can retain its state for hours. Keep its available
+  // location, but never present an old or unverified observation as current.
+  return (dashboard.users || []).filter(user=>user.map_visible).flatMap(user=>{
+    const profile=profiles.find(p=>p.profile_id===user.profile_id);
+    const state=states?.[profile?.person_entity];
+    if(!state || ["unavailable","unknown"].includes(state.state))return [];
+    const lat=state.attributes?.latitude,lon=state.attributes?.longitude;
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return [];
+    const updated=state.last_reported || state.last_updated;
+    const age=now-Date.parse(updated);
+    return [{profile_id:user.profile_id,name:user.name,latitude:lat,longitude:lon,
+      location_stale:!Number.isFinite(age)||age<0||age>900000,
+      location_updated_at:Number.isFinite(Date.parse(updated))?updated:null}];
+  });
 }
 
 export function selectedAlertEvents(profile, choices) {
@@ -93,19 +110,20 @@ class WeatherIntelligencePanel extends HTMLElement {
       .alert-row{border-top:1px solid var(--divider-color);padding-top:12px;margin-top:12px}.alert-row.critical{border-left:3px solid var(--error-color);padding-left:10px}.ack{font-size:13px}.ack.yes{color:var(--success-color,#2d9b61)}
       .text-button{background:none;padding:0;color:var(--primary-color);font:inherit;text-align:left}.outlook{border-top:1px solid var(--divider-color);padding:14px 0}.outlook:first-child{border:0}.outlook summary{cursor:pointer;font-weight:600}.outlook p{margin:8px 0}.report-item{margin:14px 0}.report-item small{display:block;margin:5px 0}
       .bottom-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;margin:24px 0}.bottom-actions button{width:100%;min-width:0}dialog{box-sizing:border-box;max-width:780px;width:calc(100% - 32px);max-height:85vh;border:1px solid var(--divider-color);border-radius:12px;padding:24px;background:var(--card-background-color,#fff);color:var(--primary-text-color)}dialog::backdrop{background:#0008}dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5}a{color:var(--primary-color)}.steps li{margin-bottom:8px}
-      .privacy-button{display:block;width:100%;padding:14px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);font-size:14px;margin:12px 0 26px}
+      .privacy-button{display:block;width:100%;padding:14px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);font-size:14px;margin:12px 0 26px}.diagnostic-audit-button{display:block;width:100%;padding:14px;margin:12px 0 26px}
       #android-onboarding{max-width:620px}.setup-progress{color:var(--secondary-text-color);font-size:13px}.setup-modes{display:grid;grid-template-columns:1fr 1fr;gap:12px}.setup-nav{border-top:1px solid var(--divider-color);padding-top:16px}.setup-nav .primary{margin-left:auto}#setup-status{min-height:1.4em}button:disabled{opacity:.55;cursor:default}dt{color:var(--secondary-text-color);margin-top:10px}dd{margin:3px 0 12px}
       @media(max-width:560px){:host{padding:14px}.user-grid,.bottom-actions{grid-template-columns:1fr}ha-card{padding:16px}.heading{align-items:flex-start}h1{font-size:24px}}
     </style>${PANEL_NAVIGATION}${FEEDBACK_BAR}
     <h1>Weather Intelligence</h1>${renderAdminActionNotice(c.admin_notice,value=>this._escape(value))}
+    ${c.actor?.is_admin&&c.reporting_consent_review_required?'<ha-card role="alert"><h2>Error reporting needs review</h2><p>Reporting is paused until you review the diagnostic details, installation ID, and software versions included with reports. The updated details identify known failure causes and code locations without sending raw logs.</p><button id="review-reporting-consent" class="primary">Review reporting changes</button></ha-card>':''}
     <div id="overview-view">
       <ha-card><div class="heading"><h2>Radar &amp; warning polygons</h2><small>Latest available NOAA/NWS data</small></div><weather-radar-map basemap="openfreemap"></weather-radar-map></ha-card>
       <p id="overview-health" role="status"></p>
       <h2>Your household</h2><div id="user-grid" class="user-grid"></div>
       <ha-card><h2>Your day today</h2><div id="outlooks"></div></ha-card>
       <div class="bottom-actions"><button data-view="general">Settings</button><button data-view="users">User settings</button><button data-view="onboarding" class="primary">Review setup or add devices</button></div>
-      <div class="actions"><button id="about-button">About Weather Intelligence</button></div>
       <button id="privacy-button" class="privacy-button">How do we manage your privacy?</button>
+      ${c.actor?.is_admin?'<button id="diagnostic-audit-button" class="primary diagnostic-audit-button">Audit log of diagnostic reports sent to developer</button>':''}
     </div>
     <div id="settings-view" hidden><div class="actions"><button data-view="overview">← Back to overview</button><h2 id="settings-heading">Set up weather alerts</h2></div>
     <p role="note" data-group="users">Changes you save to another user’s settings will automatically notify that user.</p>
@@ -125,22 +143,26 @@ class WeatherIntelligencePanel extends HTMLElement {
       <label>MQTT topic<input id="mqtt-error-topic" value="${this._escape(c.developer_logging.topic)}"></label>
       <small>Publishes redacted, non-retained JSON at QoS 1. Published: ${c.developer_logging.published_errors}; failed publishes: ${c.developer_logging.failed_publishes}.${c.developer_logging.last_failure ? " " + this._escape(c.developer_logging.last_failure) : ""}</small>
     </ha-card>
-    <ha-card data-group="users"><h2>Household users</h2><div id="profiles"></div><button id="add">Add person</button></ha-card>
+    <ha-card data-group="users"><h2>Household users</h2><div id="profiles"></div><small>To add or remove a device, choose Review setup or add devices on the overview.</small></ha-card>
     <ha-card data-group="users"><h2>Mobile alert setup</h2><p>Finish permissions on each phone, then send a safe test before relying on critical alerts.</p><div id="mobile-setup"></div></ha-card>
     <div class="actions"><button id="save" class="primary">Save changes</button><span id="result" role="status"></span></div></div>
     <dialog id="official-report" aria-labelledby="dialog-heading"><div class="heading"><h2 id="dialog-heading">Official report</h2><button id="close-report">Close</button></div><div id="report-content"></div></dialog>
     <dialog id="android-onboarding" aria-labelledby="android-setup-heading"></dialog>`;
     this._bindNavigation();
     this.shadowRoot.querySelector('#give-feedback').onclick=()=>this._showFeedback();
+    this._bindAccountNotice();
+    this.shadowRoot.querySelector('#about-button').onclick=()=>this._showAbout();
     this._alertEditor=new ProfileAlertEditor(this.shadowRoot,{escape:value=>this._escape(value)});
     this._renderProfiles();
-    installSavedDeviceSettings(this);
     this._renderMobileSetup();
-    this.shadowRoot.querySelector("#add").onclick = () => { this._profilesDirty=true;c.profiles.push(this._newProfile()); this._renderProfiles(); };
     this.shadowRoot.querySelector("#save").onclick = () => this._save();
     this.shadowRoot.querySelectorAll("[data-view]").forEach(button => button.onclick = () => this._switchView(button.dataset.view));
     this.shadowRoot.querySelector("#close-report").onclick = () => this.shadowRoot.querySelector("#official-report").close();
     this.shadowRoot.querySelector("#privacy-button").onclick = () => this._showPrivacy();
+    const auditButton=this.shadowRoot.querySelector('#diagnostic-audit-button');
+    if(auditButton)auditButton.onclick=()=>this._showReportingAudit();
+    const consentButton=this.shadowRoot.querySelector('#review-reporting-consent');
+    if(consentButton)consentButton.onclick=()=>this._showReporting();
     this.shadowRoot.querySelector("#about-button").onclick = () => this._showAbout();
     this.shadowRoot.querySelector("#reporting-settings").onclick = () => this._showReporting();
     this._renderDashboard();
@@ -182,7 +204,7 @@ class WeatherIntelligencePanel extends HTMLElement {
         },
         send:(id,action,expected)=>this._hass.callWS({type:"weather_intelligence/mobile_setup/android",profile_id:id,action,expected_profile:expected}),
       });
-      this._androidSetup.open(requested);
+      this._androidSetup.openPermissions(requested);
     }catch(error){this.shadowRoot.querySelector("#overview-health").textContent="Could not open setup: "+(error.message||"Check the connection.");}
     finally{this._openingSetup=false;}
   }
@@ -247,23 +269,16 @@ class WeatherIntelligencePanel extends HTMLElement {
   _updateMapPeople() {
     const map = this.shadowRoot.querySelector("weather-radar-map");
     if (!map || !this._config?.dashboard) return;
-    const people = [];
-    for (const user of this._config.dashboard.users) {
-      const profile = this._config.profiles.find(p => p.profile_id === user.profile_id);
-      const state = this._hass.states?.[profile?.person_entity];
-      if (!user.map_visible || !state || ["unavailable","unknown"].includes(state.state)) continue;
-      const age = Date.now() - Date.parse(state.last_reported || state.last_updated);
-      const lat = state.attributes?.latitude, lon = state.attributes?.longitude;
-      if (!Number.isFinite(age) || age < 0 || age > 900000 || typeof lat !== "number" || typeof lon !== "number" || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-      people.push({profile_id:user.profile_id,name:user.name,latitude:lat,longitude:lon});
-    }
+    const people=mapPeople(this._config.dashboard,this._config.profiles,this._hass.states);
     map.data = {...this._config.dashboard,people};
   }
 
   _renderWelcome() {
     this.shadowRoot.innerHTML = PANEL_NAVIGATION+FEEDBACK_BAR+renderAdminActionNotice(this._config.admin_notice,value=>this._escape(value))+WELCOME_SCREEN;
     this._bindNavigation();
+    this._bindAccountNotice();
     this.shadowRoot.querySelector('#give-feedback').onclick=()=>this._showFeedback();
+    this.shadowRoot.querySelector('#about-button').onclick=()=>this._showAbout();
     this._onboardingFlow=installProductionOnboarding(this);
     this._alertEditor=new ProfileAlertEditor(this.shadowRoot,{escape:value=>this._escape(value)});
     if(this._config.actor?.is_admin){
@@ -271,28 +286,39 @@ class WeatherIntelligencePanel extends HTMLElement {
       reportingButton.textContent='Optional error reporting';reportingButton.onclick=()=>this._showReporting();
       this.shadowRoot.querySelector('.welcome-landing').append(reportingButton);
     }
-    if(this._config.own_preferences_available){
-      const button=this.ownerDocument.createElement('button');button.textContent='Notification settings';
-      button.style.marginTop='16px';button.onclick=async()=>{
-        button.disabled=true;
-        try{
-          const snapshot=await this._hass.callWS({type:'weather_intelligence/preferences/get'});
-          this._alertEditor.openProfiles(snapshot,async draft=>{
-            const dnd=draft.dnd_confirmed?{dnd_bypass:draft.dnd_bypass,dnd_rule_ids:draft.dnd_rule_ids,dnd_confirmed:true,outage_dnd_enabled:draft.outage_dnd_enabled}:{};
-            await this._hass.callWS({type:'weather_intelligence/preferences/update',profile_id:draft.profile.profile_id,expected_profile:draft.profile,alert_events:draft.alert_events,reviewed_event_ids:draft.reviewed_event_ids,marine_warning_mode:draft.marine_warning_mode,marine_nearby_enabled:draft.marine_nearby_enabled,marine_nearby_miles:draft.marine_nearby_miles,...dnd});
-          });
-        }catch(error){button.textContent=error.message || 'Could not open notification settings. Try again.';}
-        finally{button.disabled=false;}
-      };
-      this.shadowRoot.querySelector('.welcome-landing').append(button);
-    }
   }
 
-  _openWelcome() {
+  _bindAccountNotice(){
+    bindAdminActionNotice(this.shadowRoot,{
+      send:notice_id=>this._hass.callWS({type:'weather_intelligence/account_notice/dismiss',notice_id}),
+      dismissed:id=>{if(this._config.admin_notice?.id===id)this._config.admin_notice=null;}
+    });
+  }
+
+  _openWelcome(requestedStage) {
     const dialog=this.shadowRoot.querySelector("#welcome-onboarding");
-    if(this._welcomeRevisit || this._config.onboarding?.completed)this._showSetupStage("setup_menu");
+    if(requestedStage)this._showSetupStage(requestedStage);
+    else if(this._welcomeRevisit || this._config.onboarding?.completed)this._showSetupStage("choice");
     else if(this._config.onboarding?.initiated || this._welcomeInitiated)this._showSetupStage(this._config.onboarding.stage || "choice");
     if(dialog && !dialog.open)dialog.showModal();
+  }
+
+  async _saveExistingAlertPreferences(draft) {
+    const dnd=draft.dnd_confirmed?{dnd_bypass:draft.dnd_bypass,dnd_rule_ids:draft.dnd_rule_ids,dnd_confirmed:true,outage_dnd_enabled:draft.outage_dnd_enabled}:{};
+    await this._hass.callWS({type:'weather_intelligence/preferences/update',profile_id:draft.profile.profile_id,expected_profile:draft.profile,alert_events:draft.alert_events,reviewed_event_ids:draft.reviewed_event_ids,marine_warning_mode:draft.marine_warning_mode,marine_nearby_enabled:draft.marine_nearby_enabled,marine_nearby_miles:draft.marine_nearby_miles,...dnd});
+  }
+
+  async _openMobilePermissions(profile) {
+    if(!this._config.actor?.is_admin){
+      const dialog=this.shadowRoot.querySelector('#official-report');
+      this.shadowRoot.querySelector('#dialog-heading').textContent='Mobile alert permissions';
+      this.shadowRoot.querySelector('#report-content').innerHTML=profile.mobile_platform==='android'?ANDROID_SOUND_STEPS:'<p>On your iPhone, open Settings, then Notifications, then Home Assistant. Allow notifications, sounds and Critical Alerts if you want DND bypass. Use device setup to review delivery choices and run a test when you are ready.</p>';
+      dialog.showModal();return;
+    }
+    this.shadowRoot.querySelector('#welcome-onboarding').close();
+    this._view='users';await this._load();
+    if(profile.mobile_platform==='android')await this._startAndroidSetup(profile.profile_id);
+    else this.shadowRoot.querySelector(`[data-setup-profile="${CSS.escape(profile.profile_id)}"]`)?.scrollIntoView({block:'start'});
   }
 
   _beginWelcome() {
@@ -386,7 +412,12 @@ class WeatherIntelligencePanel extends HTMLElement {
     // Never drop a choice made while initiation or a previous choice is saving.
     this._setupSaveQueue=enqueueOnboardingSave(this._setupSaveQueue,async()=>{
       try {
-        const saved=await this._hass.callWS({type:"weather_intelligence/onboarding/update",expected_revision:this._config.onboarding.revision || 0,...update});
+        if(update.mode&&this._config.onboarding.progress_user_id&&this._config.onboarding.progress_user_id!==this._config.actor.id){
+          const own=await this._hass.callWS({type:'weather_intelligence/onboarding/get'});
+          this._config={...this._config,...own};
+        }
+        const source=this._config.onboarding.progress_user_id;
+        const saved=await this._hass.callWS({type:"weather_intelligence/onboarding/update",...(source?{progress_user_id:source}:{}),expected_revision:this._config.onboarding.revision || 0,...update});
         this._config={...this._config,...saved};
         this._markSetupMode();
         this._updateOnboardingEntry();
@@ -436,6 +467,17 @@ class WeatherIntelligencePanel extends HTMLElement {
     }catch{root.textContent='Feedback is unavailable. Sign in with an active Home Assistant account and try again.';}
   }
 
+  async _showReportingAudit() {
+    if(!this._config.actor?.is_admin)return;
+    const dialog=this.shadowRoot.querySelector('#official-report');
+    const root=this.shadowRoot.querySelector('#report-content');
+    this.shadowRoot.querySelector('#dialog-heading').textContent='Diagnostic reporting audit log';
+    if(!dialog.open)dialog.showModal();
+    await mountReportingAudit(root,
+      offset=>this._hass.callWS({type:'weather_intelligence/reporting/audit',offset}),
+      ()=>this._showReporting());
+  }
+
   async _showReporting() {
     const dialog=this.shadowRoot.querySelector('#official-report');
     const root=this.shadowRoot.querySelector('#report-content');
@@ -459,7 +501,7 @@ class WeatherIntelligencePanel extends HTMLElement {
     try{
       const snapshot=await this._hass.callWS({type:'weather_intelligence/outages/get'});
       if(dialog.open)mountOutages(root,snapshot,
-        settings=>this._hass.callWS({type:'weather_intelligence/outages/update',...settings}),()=>this._showReporting(),async()=>{
+        settings=>this._hass.callWS({type:'weather_intelligence/outages/update',...settings}),()=>{dialog.close();this._refreshDashboard();},async()=>{
           const preferences=await this._hass.callWS({type:'weather_intelligence/preferences/get'});
           dialog.close();
           this._alertEditor.openProfiles(preferences,async draft=>{
@@ -468,7 +510,7 @@ class WeatherIntelligencePanel extends HTMLElement {
               expected_profile:draft.profile,alert_events:draft.alert_events,reviewed_event_ids:draft.reviewed_event_ids,
               marine_warning_mode:draft.marine_warning_mode,...dnd});
           });
-        });
+        },()=>this._showReporting());
     }catch{root.textContent='Could not open outage settings. An administrator account is required.';}
   }
 
@@ -494,25 +536,23 @@ class WeatherIntelligencePanel extends HTMLElement {
 
   _sourceCheck(key, label) { return `<label class="check"><input type="checkbox" data-source="${key}" ${this._config.sources[key] ? "checked" : ""}>${label}</label>`; }
   _newProfile() { return {profile_id: newProfileId(), name:"", person_entity:"", notify_entity:"", legacy_notify_service:"", mobile_platform:"auto", show_location_on_map:"inherit", enabled:true, receive_personal_location_alerts:true, receive_designated_home_alerts_while_away:false, automatic_official_warning_notifications:false, critical_notifications_enabled:false, hazard_families:this._config.hazard_families.map(x=>x.value), alert_events:recommendedAlertEvents(this._config.alert_choices || []), daily_briefing_enabled:false, daily_briefing_location:"designated_home"}; }
-  _options(items, selected) { return `<option value="">Choose…</option>` + items.map(x=>`<option value="${this._escape(x.value)}" ${x.value===selected?"selected":""}>${this._escape(x.label)}</option>`).join(""); }
+  _options(items, selected, placeholder='Choose…') { return `<option value="">${this._escape(placeholder)}</option>` + items.map(x=>`<option value="${this._escape(x.value)}" ${x.value===selected?"selected":""}>${this._escape(x.label)}</option>`).join(""); }
   _renderProfiles() {
     const root = this.shadowRoot.querySelector("#profiles");
     root.innerHTML = this._config.profiles.map((p,i)=>`<section class="profile" data-index="${i}"><div class="grid">
       <label>Name<input data-field="name" value="${this._escape(p.name)}"></label>
       <label>Person<select data-field="person_entity">${this._options(this._config.people,p.person_entity)}</select></label>
-      <label>Companion notification target<select data-field="notify_entity">${this._options(this._config.notify_targets,p.notify_entity)}</select></label>
+      <label>Notification device<select data-field="legacy_notify_service">${this._options(this._config.legacy_targets,p.legacy_notify_service,p.notify_entity&&!p.legacy_notify_service?'Using basic target below':'Choose…')}</select><small>Used for everyday notifications and advanced weather alerts. DND bypass is a separate choice.</small></label>
       <label>Phone type<select data-field="mobile_platform"><option value="auto" ${(p.mobile_platform||"auto")==="auto"?"selected":""}>Detect automatically</option><option value="android" ${p.mobile_platform==="android"?"selected":""}>Android</option><option value="ios" ${p.mobile_platform==="ios"?"selected":""}>iPhone</option></select></label></div>
-      <label>Advanced Companion notification action<select data-field="legacy_notify_service">${this._options(this._config.legacy_targets,p.legacy_notify_service)}</select><small>Enables Weather Alert channels, sound treatment, icons, replacement, and automatic clearing.</small></label>
+      <details><summary>Advanced delivery options</summary><label>Basic notification entity<select data-field="notify_entity">${this._options(this._config.notify_targets,p.notify_entity,'Optional')}</select><small>A separate Home Assistant delivery interface for basic messages. The notification device above supports weather channels, sounds, DND fields, replacement and clearing without this field.</small></label></details>
       ${this._check("enabled","Profile enabled",p.enabled)}${this._check("receive_personal_location_alerts","Alerts near this person",p.receive_personal_location_alerts)}${this._check("receive_designated_home_alerts_while_away","Home alerts while away",p.receive_designated_home_alerts_while_away)}
       <label>Location on weather map<select data-field="show_location_on_map"><option value="inherit" ${(p.show_location_on_map||"inherit")==="inherit"?"selected":""}>Follow Home Assistant entity visibility</option><option value="show" ${p.show_location_on_map==="show"?"selected":""}>Explicitly show available location here</option><option value="hide" ${p.show_location_on_map==="hide"?"selected":""}>Hide location here (keep opted-in moving alerts)</option></select></label>
       ${this._check("daily_briefing_enabled","Daily briefing",p.daily_briefing_enabled)}
+      <label>Daily briefing time<input type="time" data-field="daily_outlook_time" value="${this._escape(p.daily_outlook_time||this._config.briefing_time)}"></label>
       <label>Daily briefing location<select data-field="daily_briefing_location"><option value="designated_home" ${p.daily_briefing_location==="designated_home"?"selected":""}>Designated home</option><option value="person" ${p.daily_briefing_location==="person"?"selected":""}>This person's current location</option><option value="both" ${p.daily_briefing_location==="both"?"selected":""}>Designated home and current location</option></select></label>
-      ${this._check("automatic_official_warning_notifications","Automatic relevant official hazard notifications",p.automatic_official_warning_notifications)}<p>DND bypass: ${p.critical_notifications_enabled?"on":"off"}. Use Edit alert and DND choices to review or change the bypass list.</p>
-      <p>${Array.isArray(p.alert_events)?`${p.alert_events.length} individual alert choices selected.`:"Existing alert preferences preserved. Review each alert individually when you are ready."}</p><button data-alert-choices="${i}" ${(this._config.alert_choices || []).length?"":"disabled"}>Edit alert and DND choices</button>
-      <button class="danger" data-remove="${i}">Remove profile</button></section>`).join("") || "<p>No one is enrolled.</p>";
+      ${this._check("automatic_official_warning_notifications","Automatic relevant official hazard notifications",p.automatic_official_warning_notifications)}<p>DND bypass: ${p.critical_notifications_enabled?"on":"off"}. Change alerts and bypass choices through Review setup or add devices, then Edit existing setup.</p>
+      <p>${Array.isArray(p.alert_events)?`${p.alert_events.length} individual alert choices selected.`:"Existing alert preferences preserved. Review each alert individually when you are ready."}</p></section>`).join("") || "<p>No one is enrolled.</p>";
     root.querySelectorAll("input[data-field],select[data-field]").forEach(el=>el.onchange=e=>this._change(e));
-    root.querySelectorAll("button[data-alert-choices]").forEach(el=>el.onclick=()=>this._openAlertChoices(Number(el.dataset.alertChoices)));
-    root.querySelectorAll("button[data-remove]").forEach(el=>el.onclick=e=>{this._profilesDirty=true;this._config.profiles.splice(Number(e.target.dataset.remove),1);this._renderProfiles();this._renderMobileSetup();});
   }
   _openAlertChoices(index) {
     const profile=this._config.profiles[index], choices=this._config.alert_choices || [];
@@ -542,7 +582,7 @@ class WeatherIntelligencePanel extends HTMLElement {
         <p>Save profile changes before sending setup or a test. This setup panel currently requires a Home Assistant administrator account.</p><ol class="steps"><li>In iPhone Settings, open Home Assistant's Notifications and enable notifications, sounds, and Critical Alerts.</li><li>For optional speech, open <strong>Settings → Siri</strong> (or <strong>Apple Intelligence & Siri</strong>) → <strong>Announce Notifications</strong>. On some versions this is under Notifications.</li><li>If <strong>Home Assistant</strong> is listed, turn on announcements for it. If it is not listed, speech is not verified on this device; keep tone-only alerts.</li><li>To hear speech from the phone itself, open <strong>Settings → Accessibility → Siri</strong> and turn on <strong>Announce Notifications on Speaker</strong>, if available. Otherwise announcements may be limited to supported headphones or CarPlay.</li><li>Run the TEST ONLY alert with the phone locked and outside a call. Confirm tone and optional speech separately before relying on either.</li></ol><small>The Settings button is best effort. If it does not open, follow the steps manually. Delivery alone does not verify Siri speech, and identical Android/iPhone timing is not guaranteed.</small>
         <div class="actions"><button data-ios-handoff="${this._escape(p.profile_id)}">Send setup to this iPhone</button><button data-open-settings>Open iPhone Settings</button><button class="primary" data-ios-test="${this._escape(p.profile_id)}">Send spoken-alert test</button><button data-copy-link="${this._escape(p.profile_id)}">Copy setup link</button></div><p class="setup-result" data-result="${this._escape(p.profile_id)}"></p>
       </section>`).join("")||"")+
-      android.map(p=>`<section class="mobile-setup"><h3>${this._escape(p.name)} — Android</h3><p>Use the guided popup to save and test this phone in one flow.</p><button data-android-wizard="${this._escape(p.profile_id)}" class="primary">Continue Android onboarding</button><details><summary>Android sound instructions</summary>${ANDROID_SOUND_STEPS}</details></section>`).join("");
+      android.map(p=>`<section class="mobile-setup"><h3>${this._escape(p.name)} — Android</h3><p>Review this phone's notification permissions and sound settings. Tests are sent only when you request them.</p><button data-android-wizard="${this._escape(p.profile_id)}" class="primary">Configure mobile alert permissions</button><details><summary>Android sound instructions</summary>${ANDROID_SOUND_STEPS}</details></section>`).join("");
     root.querySelectorAll("button[data-android-wizard]").forEach(el=>el.onclick=()=>this._startAndroidSetup(el.dataset.androidWizard));
     root.querySelectorAll("button[data-android-action]").forEach(el=>el.onclick=()=>this._sendAndroidSetup(el.dataset.androidProfile,el.dataset.androidAction));
     root.querySelectorAll("button[data-ios-handoff]").forEach(el=>el.onclick=e=>this._sendIosHandoff(e.target.dataset.iosHandoff));

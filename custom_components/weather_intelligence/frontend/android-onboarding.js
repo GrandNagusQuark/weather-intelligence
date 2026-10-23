@@ -1,5 +1,5 @@
 // Android-only guided setup. Drafts are isolated; saving never sends a test.
-import "./android-sound-guide.js?v=1";
+import "./android-sound-guide.js?v=4";
 export function cloneSetup(value) { return JSON.parse(JSON.stringify(value)); }
 
 export function setupSteps(mode) {
@@ -14,7 +14,7 @@ export function setupError(profile) {
   return "";
 }
 
-export const ANDROID_SOUND_STEPS = `<ol class="steps"><li>Allow Home Assistant notifications on this phone.</li><li>After saving, newly enrolled phones receive the setup notification automatically. New Weather Siren categories start silent; select Alert before relying on the sound. If there is no setup notification, open phone Settings directly and continue at image 3. Returning phones are not notified again automatically because an already configured sound may play.</li><li>Open <strong>Settings → Apps → Home Assistant → Notifications → Notification categories → Weather Siren → Sound</strong>. Tap the category name, not its switch. Select Alert if the category is set to Silent, then choose a built-in sound or a file if your phone offers it.</li><li>On Samsung, if Notification categories is missing, first turn on <strong>Settings → Notifications → Advanced settings → Manage notification categories for each app</strong>.</li><li><strong>Optional but recommended:</strong> enable <strong>Show as pop-up</strong> inside Weather Siren, and choose <strong>Lock screen → Show content</strong> if you want warnings readable without unlocking. This also lets anyone viewing the screen read them. Vibrate is optional. A popup is not a guarantee of fully expanded text or a full-screen alert. Leave app-wide popup-style settings unchanged.</li><li>Choose whether this category may bypass Do Not Disturb, then test with the phone locked and outside a call. Popup, lock-screen content, and Do Not Disturb are separate phone settings.</li></ol><details><summary>Illustrated Samsung walkthrough — 5 steps</summary><android-sound-guide></android-sound-guide></details>`;
+export const ANDROID_SOUND_STEPS = `<ol class="steps"><li>Allow Home Assistant notifications on this phone.</li><li>Weather Siren uses Companion’s <strong>alarm_stream</strong> category for critical sound. Saving or opening setup does not send a notification. If the category is missing, explicitly create it below when it is safe to make sound.</li><li>Open <strong>Settings → Apps → Home Assistant → Notifications → Notification categories → alarm_stream → Sound</strong>. Tap the category name, not its switch. Select Alert if set to Silent, then choose your tone.</li><li>On Samsung, if Notification categories is missing, turn on <strong>Settings → Notifications → Advanced settings → Manage notification categories for each app</strong>.</li><li>For your selected critical alerts to sound during DND, allow <strong>Alarms</strong> in the phone’s Do Not Disturb settings. Do not allow the whole Home Assistant app. Ordinary alerts, briefings, and setup links use separate normal channels. Alarm audio is not a guaranteed override of every phone mode; test tone and speech with DND on.</li><li><strong>Optional but recommended:</strong> enable <strong>Show as pop-up</strong> for the alarm category and <strong>Lock screen → Show content</strong>. This also lets others viewing the screen read warnings. Vibrate is optional. A popup is not a guarantee of fully expanded text or a full-screen alert. Leave app-wide popup-style settings unchanged.</li></ol><details><summary>Illustrated Samsung walkthrough — older category labels</summary><android-sound-guide></android-sound-guide></details>`;
 
 export class AndroidOnboarding {
   constructor(dialog, {snapshot, newProfile, save, send, escape}) {
@@ -24,8 +24,17 @@ export class AndroidOnboarding {
     dialog.oncancel=event=>{if(this.busy){event.preventDefault();return;} this.close();};
   }
   open(profileId) {
+    this.permissionsOnly=false;
     const profile=this.snapshot.profiles.find(p=>p.profile_id===profileId && p.mobile_platform!=="ios");
     if(profile){this.selectProfile(profile.profile_id);this.step="mode";}
+    this.render();this.dialog.showModal();
+  }
+  openPermissions(profileId) {
+    const profile=this.snapshot.profiles.find(p=>p.profile_id===profileId && p.mobile_platform==='android');
+    if(!profile)throw new Error('Reopen setup and choose an enrolled Android device.');
+    this.selectProfile(profileId);this.permissionsOnly=true;this.mode='quick';
+    this.saved=true;this.step='sound';
+    this.message='Review the saved phone settings below. Opening this screen does not save changes or send a notification.';
     this.render();this.dialog.showModal();
   }
   close() {if(this.busy)return;this.dialog.close();}
@@ -61,22 +70,12 @@ export class AndroidOnboarding {
     this.busy=true;this.message="Saving this person's setup…";this.render();
     try {
       const saved=await this.save(cloneSetup(this.draft),cloneSetup(this.expected));
-      // No per-notification mute exists in Companion: a user-customized audible
-      // channel can ignore lower importance. Don't auto-notify returning phones.
-      const returningPhone=this.snapshot.profiles.some(p=>p.legacy_notify_service===saved.legacy_notify_service);
+      // A reused alarm channel may already be audible. Never notify on save.
       this.draft=cloneSetup(saved);this.expected=cloneSetup(saved);this.saved=true;this.step="sound";
       this.draft.android_confirmed=true;
       const index=this.snapshot.profiles.findIndex(p=>p.profile_id===saved.profile_id);
       index<0?this.snapshot.profiles.push(cloneSetup(saved)):this.snapshot.profiles.splice(index,1,cloneSetup(saved));
       this.message="Saved. No tone or speech test has been sent.";
-      if(!returningPhone && saved.enabled){
-        try {
-          await this.send(saved.profile_id,"prepare",cloneSetup(saved));
-          this.message="Saved. Setup notification sent to this newly enrolled phone. Select Alert and your sound on the phone; no tone or speech test was sent.";
-        }catch(error){this.message="Saved, but setup notification could not be sent: "+(error.message||"Check the phone connection.")+". You can retry below.";}
-      }else if(returningPhone){
-        this.message="Saved. This phone is already enrolled, so no extra setup notification was sent. Its existing sound settings are preserved; use phone Settings or the guide below.";
-      }
     } catch(error){this.message=`Could not save: ${error.message || "Please try again."}`;}
     finally{this.busy=false;this.render();}
   }
@@ -85,7 +84,7 @@ export class AndroidOnboarding {
     this.busy=true;this.message="Sending to the saved phone…";this.render();
     try {
       await this.send(this.draft.profile_id,action,cloneSetup(this.expected));
-      this.message=action==="test"?"TEST ONLY sent to this phone. Confirm the tone and speech on the phone; sending is not proof they were audible.":action==="prepare"?"Setup notification sent. New categories are silent; an existing category uses its phone settings. Choose Alert, your sound, and optional visibility settings on this phone.":"Setup link sent to this phone.";
+      this.message=action==="test"?"TEST ONLY sent to this phone. Confirm the tone and speech on the phone; sending is not proof they were audible.":action==="prepare"?"Siren category notification sent. It may play the category’s saved sound. Choose alarm_stream in the phone’s notification settings.":"Setup link sent to this phone.";
     }catch(error){this.message=`Could not send: ${error.message || "Check the phone connection."}`;}
     finally{this.busy=false;this.render();}
   }
@@ -97,7 +96,7 @@ export class AndroidOnboarding {
   render() {
     const e=this.escape,p=this.draft,steps=setupSteps(this.mode),index=steps.indexOf(this.step);
     let content="",title="Set up Android weather alerts";
-    if(this.step==="mode")content=`<p>How much control would you like?</p><div class="setup-modes"><button data-mode="quick" class="${this.mode==="quick"?"primary":""}" aria-pressed="${this.mode==="full"?"false":"true"}">Quick setup</button><button data-mode="full" class="${this.mode==="full"?"primary":""}" aria-pressed="${this.mode==="full"}">Full control</button></div><p>Quick setup uses recommended choices for new users. Existing alert preferences stay unchanged unless you choose otherwise. Both paths ask who to protect, which Android phone to use, and whether to enable real alerts.</p><p><small>Nothing is saved or sent until you explicitly choose it. Saving a newly enrolled phone also sends its setup notification, never a tone or speech test. This panel requires a Home Assistant administrator account.</small></p><details><summary>Preview Android phone setup instructions</summary>${ANDROID_SOUND_STEPS}</details>`;
+    if(this.step==="mode")content=`<p>How much control would you like?</p><div class="setup-modes"><button data-mode="quick" class="${this.mode==="quick"?"primary":""}" aria-pressed="${this.mode==="full"?"false":"true"}">Quick setup</button><button data-mode="full" class="${this.mode==="full"?"primary":""}" aria-pressed="${this.mode==="full"}">Full control</button></div><p>Quick setup uses recommended choices for new users. Existing alert preferences stay unchanged unless you choose otherwise. Both paths ask who to protect, which Android phone to use, and whether to enable real alerts.</p><p><small>Nothing is saved or sent until you explicitly choose it. Saving does not send a setup notification or a test. This panel requires a Home Assistant administrator account.</small></p><details><summary>Preview Android phone setup instructions</summary>${ANDROID_SOUND_STEPS}</details>`;
     if(this.step==="person") {
       if(!p)this.selectProfile("");
       const d=this.draft;
@@ -111,10 +110,15 @@ export class AndroidOnboarding {
     }
     if(this.step==="details")content=`${this.field("enabled","Profile enabled")}${this.field("receive_personal_location_alerts","Weather near this person's current location")}${this.field("receive_designated_home_alerts_while_away","Home alerts while away")}<label>Location on the map<select data-setup-field="show_location_on_map"><option value="inherit" ${p.show_location_on_map==="inherit"?"selected":""}>Follow Home Assistant entity visibility</option><option value="show" ${p.show_location_on_map==="show"?"selected":""}>Explicitly show available location</option><option value="hide" ${p.show_location_on_map==="hide"?"selected":""}>Hide marker; keep opted-in moving alerts</option></select></label>${this.field("daily_briefing_enabled","Daily briefing")}<label>Briefing location<select data-setup-field="daily_briefing_location">${[ ["designated_home","Home"],["person","Current location"],["both","Both"] ].map(([value,label])=>`<option value="${value}" ${p.daily_briefing_location===value?"selected":""}>${label}</option>`).join("")}</select></label>`;
     if(this.step==="review")content=`<h3>Review ${e(p.name)}'s setup</h3><dl><dt>Android phone</dt><dd>${e(this.snapshot.legacy_targets.find(t=>t.value===p.legacy_notify_service)?.label || p.legacy_notify_service)}</dd><dt>Automatic alerts</dt><dd>${p.automatic_official_warning_notifications?"On":"Off"}</dd><dt>Urgent sound and speech</dt><dd>${p.critical_notifications_enabled?"On":"Off"}</dd><dt>Alert choices</dt><dd>${Array.isArray(p.alert_events)?`${p.alert_events.length} selected`:"Existing preferences preserved"}</dd></dl><details><summary>Review selected alerts</summary><p>${this.choices().filter(c=>this.selected().has(c.value)).map(c=>e(c.label)).join(" · ") || "None selected"}</p></details>${this.mode==="quick"?`<p><button id="setup-customize">Customize before saving</button>${!Array.isArray(p.alert_events)?' <button id="setup-defaults">Use recommended defaults</button>':""}</p>`:""}<p>Your installation uses location supplied by Home Assistant, not independent tracking. Hiding a marker does not disable opted-in moving alerts; missing or stale location limits that coverage. Weather services receive required lookup points, and map providers receive viewed areas. Household locations are not sent to project developers.</p><p><small>Save updates only this person. Other users, source settings, and the daily briefing time are unchanged. Saving can activate real alerts if you opted in. It never sends a test automatically.</small></p>`;
-    if(this.step==="sound")content=`<h3>Weather Siren — ${e(p.name)}</h3><p>Newly enrolled phones receive setup automatically after saving. Use the guide to choose <strong>Alert</strong> and your sound. New categories start silent; returning phones keep their existing settings.</p><details><summary>Android sound instructions and screenshots</summary>${ANDROID_SOUND_STEPS}</details><p><small>Test-phase limitation: the tone follows normal notification settings; speech uses the alarm stream. Verify silent mode and Do Not Disturb separately.</small></p><p>When ready, send one TEST ONLY tone, then maximum-volume speech, to <strong>${e(this.snapshot.legacy_targets.find(t=>t.value===p.legacy_notify_service)?.label || p.legacy_notify_service)}</strong> only.</p><div class="actions"><button id="setup-test">Send TEST ONLY tone and speech</button><button id="setup-handoff">Send setup link to this phone</button></div><details><summary>Setup notification missing?</summary><p>Open phone Settings directly and continue at image 3. You can also resend the setup notification below. If Weather Siren already has an audible sound configured, Android may use it for this notification too.</p><button id="setup-prepare">Resend setup notification</button></details>`;
+    if(this.step==="sound")content=`<h3>Weather Siren — ${e(p.name)}</h3><p>The Android category is <strong>alarm_stream</strong>. It carries critical siren tone and alarm-stream speech; routine messages stay on their normal channels. Nothing is sent automatically.</p><details><summary>Android sound instructions and screenshots</summary>${ANDROID_SOUND_STEPS}</details><p>When it is safe to make sound, test the tone and speech with DND on. The phone must allow alarms; this does not allow all Home Assistant notifications.</p><div class="actions"><button id="setup-test">Send TEST ONLY tone and speech</button><button id="setup-handoff">Send setup link to this phone</button></div><details><summary>Siren category missing?</summary><p>Creating it may play its saved sound. It is not a silent test.</p><button id="setup-prepare">Create siren category (may play sound)</button></details>`;
     if(this.step==="finish")content=`<h3>Setup saved for ${e(p.name)}</h3><p>Your choices are saved. Only your own check on the phone can confirm the sound and speech work. You can revisit onboarding at any time.</p><p><small>Weather Intelligence supplements official warning channels. Do not rely on a single app or an untested phone configuration for life safety.</small></p>`;
     this.dialog.innerHTML=`<div class="heading"><h2 id="android-setup-heading">${title}</h2><button id="setup-close" ${this.busy?"disabled":""}>${this.saved?"Close":"Cancel"}</button></div><p class="setup-progress">Step ${index+1} of ${steps.length} · ${this.mode==="full"?"Full control":"Quick setup"}</p><div id="setup-page">${content}</div><p id="setup-status" role="status">${e(this.message)}</p><div class="actions setup-nav">${index>0?'<button id="setup-back">Back</button>':""}${this.step==="review"?'<button id="setup-save" class="primary">Save and continue to sound setup</button>':this.step==="finish"?'<button id="setup-done" class="primary">Done</button>':'<button id="setup-next" class="primary">Continue</button>'}</div>`;
     const root=this.dialog;
+    if(this.permissionsOnly){
+      root.querySelector('#android-setup-heading').textContent='Mobile alert permissions';
+      root.querySelector('.setup-progress').textContent='Permissions and sound for the saved notification device';
+      root.querySelector('.setup-nav').innerHTML='<button id="setup-done" class="primary">Done</button>';
+    }
     root.querySelector("#setup-close").onclick=()=>this.close();
     root.querySelector("#setup-back")?.addEventListener("click",()=>{if(this.step==="sound")this.saved=false;this.go(-1);});
     root.querySelector("#setup-next")?.addEventListener("click",()=>{

@@ -1,9 +1,13 @@
 """Authenticated onboarding plus separately admin-only household configuration."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote
+
+_LOGGER = logging.getLogger(__name__)
 
 from .config import effective_entry_config, normalize_profiles, profile_to_dict, profiles_from_config
 from .const import (
@@ -16,7 +20,7 @@ from .hazard_policy import HazardFamily, alert_choices
 from .dashboard import build_dashboard_snapshot, get_official_report
 from .onboarding import ONBOARDING_KEY, onboarding_progress, onboarding_snapshot
 from .admin_actions import async_commit_profile_update
-from .profile_preferences import async_preferences_snapshot, async_save_alert_preferences, preference_pages
+from .profile_preferences import async_preferences_snapshot, async_save_alert_preferences, async_remove_profile, preference_pages
 from .about import about_snapshot
 from .profile_dnd import profile_dnd_catalog, profile_dnd_setup_status
 from .onboarding_accounts import async_actor, async_onboarding_snapshot, async_save_account_progress, STAGES, ALERT_PATHS
@@ -36,16 +40,18 @@ from .mobile_notification import (
 PANEL_URL = "weather-intelligence"
 PANEL_ELEMENT = "weather-intelligence-panel"
 PANEL_MODULE_URL = (
-    "/weather_intelligence_static/weather-intelligence-panel.js?v=0.1.25-alpha-onboarding-1"
+    "/weather_intelligence_static/weather-intelligence-panel.js?v=0.1.33-alpha-diagnostics-1"
 )
 
 
 def build_panel_snapshot(hass: Any, entry: Any) -> dict[str, Any]:
     """Return friendly UI data and never return a stored credential."""
     effective = effective_entry_config(entry)
+    from .reporting_config import reporting_review_required
     onboarding = onboarding_snapshot(effective, testing=getattr(hass, "data", {}).get(DOMAIN, {}).get("onboarding_testing", False))
     return {
         "about": about_snapshot(effective),
+        "reporting_consent_review_required": reporting_review_required(effective),
         "onboarding": onboarding,
         "profiles": [profile_to_dict(item) for item in profiles_from_config(effective)],
         "people": _entity_choices(hass, "person"),
@@ -163,6 +169,21 @@ async def async_register_admin_panel(hass: Any) -> bool:
         data["panel_static"] = True
 
     if not data.get("panel_commands"):
+        @websocket_api.websocket_command({
+            vol.Required("type"): f"{DOMAIN}/account_notice/dismiss",
+            vol.Required("notice_id"): str,
+        })
+        @websocket_api.async_response
+        async def dismiss_account_notice(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
+            from .admin_actions import async_dismiss_account_notice
+            try:
+                actor = await async_actor(hass, connection)
+                await async_dismiss_account_notice(hass, _single_entry(hass), actor, msg["notice_id"])
+            except ValueError as error:
+                connection.send_error(msg["id"], "notice_not_dismissed", str(error))
+                return
+            connection.send_result(msg["id"], {"dismissed":True})
+
         @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/preferences/get"})
         @websocket_api.async_response
         async def get_preferences(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
@@ -197,15 +218,36 @@ async def async_register_admin_panel(hass: Any) -> bool:
             except ValueError as error:
                 connection.send_error(msg["id"], "invalid_preferences", str(error))
                 return
-            await hass.config_entries.async_reload(entry.entry_id)
+            if not await async_reload_preserving_panel(hass, entry):
+                connection.send_error(msg["id"], "activation_failed", "Your choices were saved, but activation failed. Restart Home Assistant before relying on the changed settings.")
+                return
             connection.send_result(msg["id"], {"saved": True, "profile": saved})
 
-        @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/onboarding/get"})
+        @websocket_api.websocket_command({
+            vol.Required("type"): f"{DOMAIN}/preferences/remove",
+            vol.Required("profile_id"): str,
+            vol.Required("expected_profile"): dict,
+        })
+        @websocket_api.async_response
+        async def remove_profile(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
+            entry = _single_entry(hass)
+            try:
+                actor = await async_actor(hass, connection)
+                await async_remove_profile(hass, entry, actor, msg)
+            except ValueError as error:
+                connection.send_error(msg["id"], "invalid_preferences", str(error))
+                return
+            if not await async_reload_preserving_panel(hass, entry):
+                connection.send_error(msg["id"], "activation_failed", "Your choices were saved, but activation failed. Restart Home Assistant before relying on the changed settings.")
+                return
+            connection.send_result(msg["id"], {"saved": True})
+
+        @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/onboarding/get", vol.Optional("progress_user_id"): str})
         @websocket_api.async_response
         async def get_onboarding(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
             try:
                 actor = await async_actor(hass, connection)
-                snapshot = await async_onboarding_snapshot(hass, _single_entry(hass), actor)
+                snapshot = await async_onboarding_snapshot(hass, _single_entry(hass), actor, msg.get("progress_user_id"))
             except ValueError as error:
                 connection.send_error(msg["id"], "onboarding_unavailable", str(error))
                 return
@@ -213,6 +255,7 @@ async def async_register_admin_panel(hass: Any) -> bool:
 
         @websocket_api.websocket_command({
             vol.Required("type"): f"{DOMAIN}/onboarding/update",
+            vol.Optional("progress_user_id"): str,
             vol.Required("expected_revision"): int,
             vol.Optional("mode"): vol.In(["quick", "guided", "custom"]),
             vol.Optional("stage"): vol.In(sorted(STAGES)),
@@ -253,6 +296,7 @@ async def async_register_admin_panel(hass: Any) -> bool:
 
         @websocket_api.websocket_command({
             vol.Required("type"): f"{DOMAIN}/onboarding/notifications",
+            vol.Optional("progress_user_id"): str,
             vol.Required("expected_revision"): int,
             vol.Required("request_id"): str,
             vol.Required("device_id"): str,
@@ -266,10 +310,12 @@ async def async_register_admin_panel(hass: Any) -> bool:
                 actor = await async_actor(hass, connection)
                 entry = _single_entry(hass)
                 from .onboarding_accounts import account_state
-                was_complete = account_state(effective_entry_config(entry), actor.id).get("stage") == "notification_complete"
+                from .setup_resume import progress_owner
+                source_id = progress_owner(actor, msg.get("progress_user_id"))
+                was_complete = account_state(effective_entry_config(entry), source_id).get("stage") == "notification_complete"
                 snapshot = await async_notification_action(hass, entry, actor, msg)
                 if msg["action"] == "finish" and not was_complete:
-                    snapshot = await async_activate_saved_notifications(hass, entry, actor)
+                    snapshot = await async_activate_saved_notifications(hass, entry, actor, source_id)
             except ValueError as error:
                 connection.send_error(msg["id"], "notification_setup_failed", str(error))
                 return
@@ -355,7 +401,9 @@ async def async_register_admin_panel(hass: Any) -> bool:
             except ValueError as error:
                 connection.send_error(msg["id"], "invalid_config", str(error))
                 return
-            await hass.config_entries.async_reload(entry.entry_id)
+            if not await async_reload_preserving_panel(hass, entry):
+                connection.send_error(msg["id"], "activation_failed", "Your choices were saved, but activation failed. Restart Home Assistant before relying on the changed settings.")
+                return
             connection.send_result(msg["id"], {"saved": True})
 
         @websocket_api.websocket_command({
@@ -379,7 +427,9 @@ async def async_register_admin_panel(hass: Any) -> bool:
             except ValueError as error:
                 connection.send_error(msg["id"], "invalid_profile", str(error))
                 return
-            await hass.config_entries.async_reload(entry.entry_id)
+            if not await async_reload_preserving_panel(hass, entry):
+                connection.send_error(msg["id"], "activation_failed", "Your choices were saved, but activation failed. Restart Home Assistant before relying on the changed settings.")
+                return
             profile = _profile_by_id(entry, msg["profile"]["profile_id"])
             connection.send_result(msg["id"], {"saved": True, "profile": profile_to_dict(profile)})
 
@@ -451,7 +501,11 @@ async def async_register_admin_panel(hass: Any) -> bool:
                 return
             connection.send_result(msg["id"], {"sent": True})
 
+        websocket_api.async_register_command(hass, dismiss_account_notice)
         websocket_api.async_register_command(hass, android_setup)
+        websocket_api.async_register_command(hass, get_preferences)
+        websocket_api.async_register_command(hass, update_preferences)
+        websocket_api.async_register_command(hass, remove_profile)
         websocket_api.async_register_command(hass, get_onboarding)
         websocket_api.async_register_command(hass, notification_setup)
         websocket_api.async_register_command(hass, update_onboarding)
@@ -484,6 +538,29 @@ async def async_register_admin_panel(hass: Any) -> bool:
         )
         data["panel_registered"] = True
     return True
+
+
+async def async_reload_preserving_panel(hass: Any, entry: Any) -> bool:
+    """Activate a settings save without removing the route or sidebar item.
+
+    Serializing saves keeps one reload from clearing another reload's guard.
+    Actual unload/removal still removes the panel normally.
+    """
+    data = hass.data.setdefault(DOMAIN, {})
+    lock = data.setdefault("panel_reload_locks", {}).setdefault(entry.entry_id, asyncio.Lock())
+    async with lock:
+        previous = data.get("panel_reset_reload")
+        data["panel_reset_reload"] = entry.entry_id
+        try:
+            return bool(await hass.config_entries.async_reload(entry.entry_id))
+        except Exception:
+            _LOGGER.warning("Saved Weather Intelligence settings could not be activated")
+            return False
+        finally:
+            if previous is None:
+                data.pop("panel_reset_reload", None)
+            else:
+                data["panel_reset_reload"] = previous
 
 
 async def async_remove_admin_panel(hass: Any) -> None:

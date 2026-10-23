@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 REPORTING_KEY = "maintainer_reporting"
-POLICY_VERSION = 2
+POLICY_VERSION = 5
 REPORT_PATH = "/v1/errors"
 PROJECT_REPORTING_ENDPOINT = "https://reports.weatherintelligence.app/v1/errors"
 _HOSTNAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -72,3 +72,10 @@ def reporting_update(payload: Mapping[str, Any]) -> dict[str, Any]:
         "endpoint": endpoint, "enabled": enabled,
         "consent_endpoint": endpoint if enabled else "", "policy_version": POLICY_VERSION,
     }
+
+
+def reporting_review_required(config: Mapping[str, Any]) -> bool:
+    raw = config.get(REPORTING_KEY, {})
+    return (isinstance(raw, Mapping) and raw.get('enabled') is True
+            and raw.get('policy_version') != POLICY_VERSION
+            and bool(reporting_config(config)['endpoint']))

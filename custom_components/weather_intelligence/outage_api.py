@@ -7,6 +7,14 @@ from .const import DOMAIN
 from .outage_protocol import OUTAGE_POLICY_VERSION
 from .outage_reporting import OUTAGE_KEY, async_setup_outages, outage_config
 from .reporting_config import reporting_config
+from .reporting_identity import async_saved_reporting_identity
+
+
+async def async_outage_settings_snapshot(hass, entry):
+    snapshot = outage_snapshot(hass, entry)
+    snapshot['installation_id'] = await async_saved_reporting_identity(hass, entry)
+    snapshot['reporting_enabled'] = reporting_config(effective_entry_config(entry))['enabled']
+    return snapshot
 
 
 def outage_snapshot(hass, entry):
@@ -24,7 +32,7 @@ def register_outage_commands(hass, get_entry):
     @websocket_api.require_admin
     @websocket_api.async_response
     async def get_outages(hass, connection, msg):
-        connection.send_result(msg["id"], outage_snapshot(hass, get_entry(hass)))
+        connection.send_result(msg["id"], await async_outage_settings_snapshot(hass, get_entry(hass)))
 
     @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/outages/update",
         vol.Required("expected_config"): dict, vol.Required("enabled"): bool,
@@ -45,7 +53,7 @@ def register_outage_commands(hass, get_entry):
                 "enabled": msg["enabled"], "consent": msg["consent"] if msg["enabled"] else False,
                 "policy_version": OUTAGE_POLICY_VERSION}})
             await async_setup_outages(hass, entry)
-            connection.send_result(msg["id"], outage_snapshot(hass, entry))
+            connection.send_result(msg["id"], await async_outage_settings_snapshot(hass, entry))
 
     websocket_api.async_register_command(hass, get_outages)
     websocket_api.async_register_command(hass, update_outages)

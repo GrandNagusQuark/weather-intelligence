@@ -61,8 +61,12 @@ async def async_preferences_snapshot(hass: Any, entry: Any, actor: Any) -> dict:
     visible = [
         profile for profile in profiles if actor.is_admin or _owner_id(hass, profile) == actor.id
     ]
+    from .setup_resume import async_unfinished_setups
+
+    unfinished = await async_unfinished_setups(hass, entry, actor)
     return {
         "profiles": visible,
+        "unfinished_setups": unfinished,
         "pages": preference_pages(hass),
         "choices": alert_choices(),
         "dnd_catalog": profile_dnd_catalog(hass),
@@ -90,6 +94,32 @@ async def async_save_alert_preferences(
         raise ValueError("These notification settings are not available to this account.")
     if previous != payload.get("expected_profile"):
         raise ValueError("These settings changed. Reopen notification settings before saving.")
+    replacement, selected = edited_alert_choices(previous, payload)
+    replacement = apply_profile_dnd_changes(hass, replacement, selected, payload)
+    if replacement == previous:
+        return previous
+    updated = [
+        replacement if profile["profile_id"] == profile_id else profile for profile in profiles
+    ]
+    updated = [profile_to_dict(profile) for profile in normalize_profiles(updated)]
+    from .saved_device_settings import (
+        SAVED_DEVICE_SETTINGS,
+        capture_profile_settings,
+        library_from_config,
+    )
+
+    updates = {"profiles": updated}
+    library = library_from_config(config)
+    if capture_profile_settings(library, hass, {**config, **updates}, actor.id):
+        updates[SAVED_DEVICE_SETTINGS] = library
+    await async_commit_profile_update(
+        hass, entry, actor, updates, expected_profiles=config.get("profiles", [])
+    )
+    return next(profile for profile in updated if profile["profile_id"] == profile_id)
+
+
+def edited_alert_choices(previous: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple[dict, set[str]]:
+    """Validate the same alert editor for saved profiles and unfinished drafts."""
     choices = alert_choices()
     allowed = {choice["value"] for choice in choices}
     events, reviewed = payload.get("alert_events"), payload.get("reviewed_event_ids", [])
@@ -111,7 +141,9 @@ async def async_save_alert_preferences(
         }
     )
     changed_events = touched | selected.symmetric_difference(previous_events)
-    for page in preference_pages(hass):
+    from .onboarding_alerts import selectable_pages
+
+    for page in selectable_pages("choose_all"):
         if page.get("watch_automatic") and changed_events.intersection(page_event_ids(page)):
             if selected.intersection(page.get("event_ids", [page["id"]])):
                 selected.update(page["watch"].get("event_ids", [page["watch"]["id"]]))
@@ -136,26 +168,26 @@ async def async_save_alert_preferences(
         if payload["marine_warning_mode"] not in {"always", "on_water"}:
             raise ValueError("Choose a valid marine notification preference.")
         replacement["marine_warning_mode"] = payload["marine_warning_mode"]
-    replacement = apply_profile_dnd_changes(hass, replacement, selected, payload)
     if any(key in payload for key in MARINE_NEARBY_FIELDS):
         replacement.update(marine_nearby_preferences({**replacement, **{key: payload[key] for key in MARINE_NEARBY_FIELDS if key in payload}}))
-    if replacement == previous:
-        return previous
-    updated = [
-        replacement if profile["profile_id"] == profile_id else profile for profile in profiles
-    ]
-    updated = [profile_to_dict(profile) for profile in normalize_profiles(updated)]
-    from .saved_device_settings import (
-        SAVED_DEVICE_SETTINGS,
-        capture_profile_settings,
-        library_from_config,
-    )
+    return replacement, selected
 
-    updates = {"profiles": updated}
+
+async def async_remove_profile(hass: Any, entry: Any, actor: Any, payload: Mapping[str, Any]) -> None:
+    """Remove one authorized, unchanged enrollment without editing other devices."""
+    actor = await _active_actor(hass, actor)
+    config = effective_entry_config(entry)
+    profiles = [profile_to_dict(profile) for profile in normalize_profiles(config.get("profiles", []))]
+    previous = next((profile for profile in profiles if profile["profile_id"] == payload.get("profile_id")), None)
+    if previous is None or (not actor.is_admin and _owner_id(hass, previous) != actor.id):
+        raise ValueError("This device is not available to this account.")
+    if previous != payload.get("expected_profile"):
+        raise ValueError("These settings changed. Reopen device setup before removing this device.")
+    from .saved_device_settings import SAVED_DEVICE_SETTINGS, capture_profile_settings, library_from_config
+
     library = library_from_config(config)
-    if capture_profile_settings(library, hass, {**config, **updates}, actor.id):
-        updates[SAVED_DEVICE_SETTINGS] = library
-    await async_commit_profile_update(
-        hass, entry, actor, updates, expected_profiles=config.get("profiles", [])
-    )
-    return next(profile for profile in updated if profile["profile_id"] == profile_id)
+    capture_profile_settings(library, hass, config, actor.id)
+    await async_commit_profile_update(hass, entry, actor, {
+        "profiles": [profile for profile in profiles if profile["profile_id"] != previous["profile_id"]],
+        SAVED_DEVICE_SETTINGS: library,
+    }, expected_profiles=config.get("profiles", []))

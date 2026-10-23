@@ -9,8 +9,9 @@ from typing import Any
 import uuid
 
 from .reporting_config import validate_endpoint
-from .reporting_device import safe_mobile_context
-from .reporting_payload import COMPONENTS, ERROR_CODES, EXCEPTION_TYPES, REPORT_FIELDS
+from .reporting_device import safe_mobile_context, safe_installation_context
+from .reporting_payload import COMPONENTS, ERROR_CODES, EXCEPTION_TYPES, REPORT_FIELDS, LINKED_REPORT_FIELDS, CONTEXT_REPORT_FIELDS, DIAGNOSTIC_REPORT_FIELDS
+from .reporting_diagnostics import validate_diagnostics
 from .outage_protocol import PROJECT_ORIGIN, OUTAGE_PATH, validate_outage
 
 RETENTION_DAYS = 30
@@ -26,12 +27,17 @@ def safe_report_copy(value: Any) -> dict[str, Any]:
     if isinstance(value, dict) and "feedback_id" in value:
         from .feedback_protocol import validate_feedback
         return validate_feedback(value)
-    if isinstance(value, dict) and "installation_id" in value:
+    if isinstance(value, dict) and value.get('schema_version') == 1 and "installation_id" in value:
         return validate_outage(value)
-    if not isinstance(value, dict) or set(value) != set(REPORT_FIELDS):
+    fields = (DIAGNOSTIC_REPORT_FIELDS if isinstance(value,dict) and value.get('schema_version') == 5 else
+              CONTEXT_REPORT_FIELDS if isinstance(value,dict) and value.get('schema_version') == 4 else
+              LINKED_REPORT_FIELDS if isinstance(value,dict) and value.get('schema_version') == 3 else REPORT_FIELDS)
+    if not isinstance(value, dict) or set(value) != set(fields):
         raise ValueError("Invalid diagnostic report")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 2:
+    if type(value["schema_version"]) is not int or value["schema_version"] not in (2,3,4,5):
         raise ValueError("Invalid diagnostic report")
+    if value['schema_version'] in (3,4,5) and (not isinstance(value['installation_id'],str) or re.fullmatch(r'[a-f0-9]{64}',value['installation_id']) is None):
+        raise ValueError('Invalid diagnostic installation number')
     for field in ("integration_version", "home_assistant_version"):
         item = value[field]
         if item == "unknown" and field == "home_assistant_version":
@@ -49,7 +55,11 @@ def safe_report_copy(value: Any) -> dict[str, Any]:
     context = safe_mobile_context(value)
     if any(value[field] != item for field, item in context.items()):
         raise ValueError("Invalid diagnostic report")
-    return {field: value[field] for field in REPORT_FIELDS}
+    if value['schema_version'] in (4,5):
+        safe_installation_context({key:value[key] for key in ('device_versions','device_versions_status')})
+    if value['schema_version'] == 5:
+        validate_diagnostics(value['diagnostics'])
+    return {field: value[field] for field in fields}
 
 
 def audit_endpoint(value):

@@ -1,6 +1,13 @@
 # Weather Intelligence for Home Assistant
 
-Current version: 0.1.25-alpha.
+Current version: 0.1.33-alpha.
+
+Optional error reports include recognizable exception types, fixed explanations,
+code locations and applicable HTTP or system error codes. Administrators can see
+the exact data and delivery result in the local audit log. Raw log text, local
+variables and filesystem paths are excluded; updated reporting requires review.
+
+Local test build. This revision has not been published to GitHub or HACS.
 
 ![Weather Intelligence](https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/brand/icon.png)
 
@@ -40,6 +47,7 @@ separate review and is not claimed. See [Installation and setup](INSTALL.md).
 - Marine alerts and adjustable nearby notices using available regional water maps.
 - Optional shared NWS outage awareness, including significant alert feed delays.
 - A notice naming the administrator when they set up or change another account.
+- A Dismiss button for account notices, remembered without reloading the page.
 - A Give feedback form with a review before sending.
 
 Outage observations consider delays of at least five minutes from official issue
@@ -60,14 +68,18 @@ providers receive the location or area needed for their services. Phone delivery
 uses Home Assistant and the phone platform's notification services.
 
 Automatic error reporting is off until an administrator agrees. Reports use
-fixed diagnostic fields, without names, coordinates, IP addresses, hardware
-identifiers, credentials or raw logs. Administrators can view the exact prepared
+fixed diagnostic fields and a random installation number, without names, coordinates, IP addresses, hardware
+identifiers, credentials or raw logs. Every current error includes available
+platform, OS and Companion app versions for enrolled phones, even for server or
+weather source errors. These are software combinations, not device identities.
+Administrators can view the exact prepared
 reports and delivery results in a local history kept for 30 days. Cloudflare
 processes connection IP addresses while handling submissions.
 
-Outage contributions have their own consent and random installation number.
-That makes them pseudonymous, not fully anonymous. The number is used for source
-failures, delays and recoveries, not ordinary error reports. You can receive
+The random number groups repeated errors from one installation. Outage
+contributions have their own consent and use the same number for source failures,
+delays and recoveries. That makes these reports pseudonymous. Existing error
+reporting pauses until an administrator reviews the added field. You can receive
 outage notices without contributing reports. Outage Do Not Disturb bypass has a
 separate choice and requires qualifying local severe weather evidence.
 
@@ -89,6 +101,11 @@ appropriate permissions. AirNow is optional and needs an API key.
 
 The maintainer reports testing on the available Android phone. iPhone behavior
 needs community testing. Do Not Disturb bypass depends on phone permissions.
+On Android, critical sirens use Companion's `alarm_stream` category. Routine
+alerts, briefings and setup links use normal categories. Allow alarms in DND;
+do not make Home Assistant an app-wide exception. Existing Android users receive
+a setup-review notice after the siren correction. Their alert choices are kept.
+See [Android sound and DND setup](INSTALL.md#android-sound-and-do-not-disturb).
 Marine notifications are in an early state. GPS and water maps are estimates,
 not navigation advice, proof of boating or dependable bridge detection.
 

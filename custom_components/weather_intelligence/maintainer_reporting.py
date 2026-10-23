@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import logging
+import json
 import threading
 import time
 from typing import Any
 
 from .config import effective_entry_config
 from .const import DOMAIN
-from .reporting_config import PROJECT_REPORTING_ENDPOINT, reporting_config
+from .reporting_config import PROJECT_REPORTING_ENDPOINT, reporting_config, reporting_review_required
+from .reporting_identity import async_reporting_identity
 from .reporting_http import ReportTransport
 from .reporting_payload import build_report, report_preview
 from .reporting_audit import async_reporting_audit
+from .reporting_device import installation_version_context, safe_installation_context
 
 MAX_PENDING = 8
 MAX_HOURLY = 20
@@ -24,13 +27,15 @@ _LOGGER_NAME = f"custom_components.{DOMAIN}"
 
 class MaintainerReportHandler(logging.Handler):
     def __init__(self, loop: Any, endpoint: str, transport: Any, ha_version: str, audit: Any = None,
-                 startup_grace_seconds: int = 0) -> None:
+                 startup_grace_seconds: int = 0, installation_id: str | None = None, version_context=None) -> None:
         super().__init__(logging.ERROR)
         self.endpoint = endpoint
         self.enabled = True
         self._loop = loop
         self._transport = transport
         self._ha_version = ha_version
+        self._installation_id = installation_id
+        self._version_context = version_context
         self._audit = audit
         self._startup_until = time.monotonic() + startup_grace_seconds
         self._slots = threading.BoundedSemaphore(MAX_PENDING)
@@ -55,7 +60,9 @@ class MaintainerReportHandler(logging.Handler):
             self.dropped += 1
             return
         try:
-            document = build_report(record, self._ha_version)
+            document = build_report(record, self._ha_version, self._installation_id,
+                {'device_versions': [], 'device_versions_status': 'registration_unavailable'}
+                if self._version_context is not None else None)
             if (time.monotonic() < self._startup_until
                     and document["component"] in {"ha_coordinator", "nws_client", "official_sources", "mrms_hail"}
                     and (document["error_code"] == "request_timeout"
@@ -66,6 +73,7 @@ class MaintainerReportHandler(logging.Handler):
                 return
             key = tuple(str(document[field]) for field in ("error_code", "component", "level", "exception_type",
                 "mobile_platform", "mobile_os_version", "companion_app_version"))
+            key += (json.dumps(document.get('diagnostics'), sort_keys=True),)
             now = time.monotonic()
             with self._rate_lock:
                 self._recent = {key: seen for key, seen in self._recent.items() if now - seen < DUPLICATE_SECONDS}
@@ -86,6 +94,13 @@ class MaintainerReportHandler(logging.Handler):
         if not self.enabled:
             self._slots.release()
             return
+        if self._version_context is not None and self._installation_id:
+            try:
+                document.update(schema_version=5, **safe_installation_context(self._version_context()))
+            except Exception:
+                self.dropped += 1
+                self._slots.release()
+                return
         self._queue.append(document)
         if self._task is None or self._task.done():
             self._task = self._loop.create_task(self._drain())
@@ -177,6 +192,17 @@ async def async_stop_reporting(hass: Any, entry_id: str) -> None:
 async def async_setup_reporting(hass: Any, entry: Any) -> None:
     await async_stop_reporting(hass, entry.entry_id)
     config = reporting_config(effective_entry_config(entry))
+    needs_review=reporting_review_required(effective_entry_config(entry))
+    try:
+        from homeassistant.components import persistent_notification
+        if needs_review:
+            persistent_notification.async_create(hass,
+                'Error reporting is paused for review. Reports now include exception causes, fixed explanations, code locations and applicable HTTP or system error codes, alongside the random installation number and enrolled phone software versions. Raw messages, filesystem paths and local variables are excluded. Review the example in Weather Intelligence reporting settings before choosing Accept or Decline. Outage contributions remain a separate choice.',
+                title='Weather Intelligence reporting needs review', notification_id='weather_intelligence_reporting_consent')
+        elif hasattr(persistent_notification,'async_dismiss'):
+            persistent_notification.async_dismiss(hass,'weather_intelligence_reporting_consent')
+    except ImportError:
+        pass
     try:
         audit = await async_reporting_audit(hass, entry.entry_id)
     except Exception:
@@ -186,11 +212,19 @@ async def async_setup_reporting(hass: Any, entry: Any) -> None:
     if not config["enabled"]:
         return
     try:
+        identifier=await async_reporting_identity(hass,entry)
+    except Exception:
+        hass.data.setdefault(DOMAIN, {}).setdefault('reporting_setup_errors', {})[entry.entry_id]='Reporting paused because its local installation number could not be loaded'
+        return
+    if reporting_config(effective_entry_config(entry)) != config or identifier is None:
+        return
+    try:
         from homeassistant.const import __version__
     except ImportError:
         __version__ = "unknown"
     handler = MaintainerReportHandler(hass.loop, config["endpoint"], ReportTransport(), __version__, audit,
-                                      startup_grace_seconds=600)
+                                      startup_grace_seconds=600,installation_id=identifier,
+                                      version_context=lambda: installation_version_context(hass,effective_entry_config(entry)))
     hass.data.setdefault(DOMAIN, {}).setdefault("maintainer_reporters", {})[entry.entry_id] = handler
     logging.getLogger(_LOGGER_NAME).addHandler(handler)
 
@@ -198,11 +232,16 @@ async def async_setup_reporting(hass: Any, entry: Any) -> None:
 def reporting_snapshot(hass: Any, entry: Any) -> dict[str, Any]:
     config = reporting_config(effective_entry_config(entry))
     handler = getattr(hass, "data", {}).get(DOMAIN, {}).get("maintainer_reporters", {}).get(entry.entry_id)
+    try:
+        from homeassistant.const import __version__ as ha_version
+    except ImportError:
+        ha_version = 'unknown'
     return {
         "config": config, "active": bool(handler and handler.enabled),
         "sent": handler.sent if handler else 0, "failed": handler.failed if handler else 0,
         "dropped": handler.dropped if handler else 0,
         "last_result": handler.last_result if handler else getattr(hass, "data", {}).get(DOMAIN, {}).get("reporting_setup_errors", {}).get(entry.entry_id, "Reporting is off"),
-        "preview": report_preview(),
+        "preview": report_preview(ha_version,installation_version_context(hass,effective_entry_config(entry))),
         "default_endpoint": PROJECT_REPORTING_ENDPOINT,
+        "consent_review_required": reporting_review_required(effective_entry_config(entry)),
     }

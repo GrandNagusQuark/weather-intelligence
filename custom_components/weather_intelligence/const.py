@@ -1,9 +1,36 @@
 """Constants owned by the provisional integration."""
 
 from datetime import timedelta
+import re
 
 DOMAIN = "weather_intelligence"
-PROTOTYPE_VERSION = "0.1.25-alpha"
+PROTOTYPE_VERSION = "0.1.33-alpha"
+
+# Companion gives only this literal channel Android alarm audio attributes.
+# A friendly name is not an alias: replacing it changes the audio stream.
+ANDROID_SIREN_CHANNEL = "alarm_stream"
+ANDROID_SETUP_CHANNEL = "Weather Setup"
+ANDROID_SIREN_REVIEW_PENDING = "android_siren_review_pending"
+ANDROID_SIREN_REVIEW_NOTIFICATION = "weather_intelligence_android_siren_review"
+ANDROID_SIREN_REVIEW_MESSAGE = (
+    "Weather Intelligence corrected the Android critical-siren audio route. "
+    "Please review notification setup on each previously configured Android phone. "
+    "Your alert choices and notification devices have been kept. "
+    "Open [Weather Intelligence](/weather-intelligence), choose Review setup or add devices, "
+    "then Edit existing setup and select the phone. Resume its notification setup, "
+    "or open Mobile alert permissions for a completed setup. "
+    "The critical siren category is now alarm_stream. Allow alarms in the phone's "
+    "Do Not Disturb settings, not all Home Assistant notifications. "
+    "When safe, verify both tone and speech with DND enabled before relying on bypass. "
+    "Ordinary alerts and briefings remain on normal channels."
+)
+
+
+def android_siren_channel(channel: str) -> str:
+    """Retire our former generated siren names, not unrelated custom channels."""
+    if re.fullmatch(r"Weather Siren(?: [0-9a-fA-F]{8})?", channel):
+        return ANDROID_SIREN_CHANNEL
+    return channel
 
 CONF_CONTACT = "contact"
 CONF_MONITOR_HOME = "monitor_designated_home"

@@ -1,21 +1,27 @@
 // Live controller: all progress comes from the authenticated, revisioned HA API.
-import {GUIDED_QUESTIONS,installGuidedSetup} from './onboarding-guided-ui.js?v=6';
+import {GUIDED_QUESTIONS,installGuidedSetup} from './onboarding-guided-ui.js?v=7';
 import {installAlertSelection,renderSelectableAlerts} from './onboarding-alert-ui.js?v=8';
 import {installDndSetup,renderDndSetup} from './onboarding-dnd-ui.js?v=4';
-import {installSavedDeviceSettings} from './saved-device-settings.js?v=1';
-import {installNotificationSetup} from './onboarding-notifications-ui.js?v=5';
+import {installSavedDeviceSettings} from './saved-device-settings.js?v=2';
+import {installExistingSetup} from './setup-edit-ui.js?v=2';
+import {installNotificationSetup} from './onboarding-notifications-ui.js?v=8';
 import {installMarineNearby,renderMarineNearby} from './marine-preferences-ui.js?v=2';
 
 const STAGES={welcome:'welcome-page',choice:'setup-choice-page',device_setup:'device-setup-page',target_device_setup:'device-setup-page',accounts:'setup-users-page',single_device:'single-device-page',multiple_settings:'multiple-device-settings-page',multiple_devices:'multiple-device-select-page',single_device_setup:'single-device-setup-page',intro:'alert-introduction',alert_choices:'alert-choice-page',guided:'guided-question-page',recommendations:'recommendations-page',guided_marine:'guided-marine-page',alert_dnd:'alert-dnd-page',notification_setup:'notification-setup-page'};
 const HEADINGS={welcome:'welcome-heading',choice:'setup-choice-heading',device_setup:'device-setup-heading',target_device_setup:'device-setup-heading',accounts:'setup-users-heading',single_device:'single-device-heading',multiple_settings:'multiple-device-settings-heading',multiple_devices:'multiple-device-select-heading',single_device_setup:'single-device-setup-heading',intro:'alert-introduction-heading',alert_choices:'alert-choice-heading',guided:'guided-question-heading',recommendations:'recommendations-heading',guided_marine:'guided-marine-heading',alert_dnd:'alert-dnd-heading',notification_setup:'notification-setup-heading'};
 Object.assign(STAGES,{dnd_options:'dnd-options-page',dnd_customize:'dnd-customize-page',dnd_confirm:'dnd-confirm-page'});
-STAGES.setup_menu='setup-menu-page';HEADINGS.setup_menu='setup-menu-heading';
+STAGES.edit_existing='edit-existing-page';HEADINGS.edit_existing='edit-existing-heading';
 Object.assign(HEADINGS,{dnd_options:'dnd-options-heading',dnd_customize:'dnd-customize-heading',dnd_confirm:'dnd-confirm-heading'});
 STAGES.daily_outlook='daily-outlook-page';HEADINGS.daily_outlook='daily-outlook-heading';
 STAGES.saved_settings='saved-device-settings-page';HEADINGS.saved_settings='saved-device-settings-heading';
 STAGES.notification_review='notification-review-page';HEADINGS.notification_review='notification-review-heading';
 STAGES.notification_complete='notification-complete-page';HEADINGS.notification_complete='notification-complete-heading';
 const CONFIGURING=new Set(['single_device_setup','guided','recommendations','intro','alert_choices','guided_marine','alert_dnd','dnd_options','dnd_customize','dnd_confirm','daily_outlook']);
+
+export function notificationRequestId() {
+  // Local HTTP Home Assistant pages do not expose crypto.randomUUID.
+  return [...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join('');
+}
 
 // Presentation only. These classes never alter delivery or DND eligibility.
 export function alertRiskPresentation(page) {
@@ -32,18 +38,23 @@ export function alertRiskPresentation(page) {
 export function installProductionOnboarding(panel) {
   const root=panel.shadowRoot,q=selector=>root.querySelector(selector),escape=value=>panel._escape(value);
   const save=update=>panel._saveOnboardingProgress(update);
-  let settingUpOther=false;
-  const openMenu=()=>{settingUpOther=false;panel._welcomeRevisit=true;panel._showSetupStage('setup_menu');};
+  const openMenu=()=>{panel._welcomeRevisit=true;panel._showSetupStage('choice');};
+  const closeSetup=()=>{
+    q('#welcome-onboarding').close();
+    if(panel._welcomeRevisit){panel._welcomeRevisit=false;panel._load();}
+  };
   const action=(name,extra={})=>save({workflow_action:name,...extra});
   installGuidedSetup(root);
   installDndSetup(root);
-  const saved_settings_ui = installSavedDeviceSettings(panel, {onboarding:true});
+  const saved_settings_ui = installSavedDeviceSettings(panel, {onboarding:true,showEntry:false});
+  const existing_ui=installExistingSetup(panel,{copySettings:()=>saved_settings_ui.open(),back:openMenu});
   const notification_ui = installNotificationSetup(root, {
     escape,
     send: async (name, extra) => {
       await panel._setupSaveQueue;
       const saved = await panel._hass.callWS({type:'weather_intelligence/onboarding/notifications',
-        expected_revision:panel._config.onboarding.revision || 0, request_id:crypto.randomUUID(), action:name, ...extra});
+        progress_user_id:panel._config.onboarding.progress_user_id||panel._config.actor.id,
+        expected_revision:panel._config.onboarding.revision || 0, request_id:notificationRequestId(), action:name, ...extra});
       panel._config={...panel._config,...saved};
       panel._showSetupStage(saved.onboarding.stage);
     },
@@ -63,21 +74,17 @@ export function installProductionOnboarding(panel) {
   const each=(selector,callback)=>root.querySelectorAll(selector).forEach(button=>button.onclick=()=>callback(button));
   bind('#start-onboarding',()=>panel._openWelcome());
   bind('#landing-about',()=>panel._showAbout());
-  bind('#welcome-close',()=>{
-    q('#welcome-onboarding').close();
-    if(panel._welcomeRevisit){panel._welcomeRevisit=false;panel._load();}
-  });
+  bind('#welcome-close',closeSetup);
+  q('#welcome-onboarding').oncancel=event=>{event.preventDefault();closeSetup();};
   bind('#welcome-privacy',event=>{event.preventDefault();panel._showPrivacy();});
   bind('#close-report',()=>q('#official-report').close());
   bind('#begin-onboarding',()=>save({stage:'choice'}));
-  bind('#setup-menu-own',()=>{settingUpOther=false;save({stage:'choice',target_user_id:panel._config.actor.id});});
-  bind('#setup-menu-other',()=>{if(!panel._config.actor.is_admin)return;settingUpOther=true;save({stage:'choice',target_user_id:panel._config.actor.id});});
-  bind('#setup-menu-resume',()=>panel._showSetupStage(panel._config.onboarding.stage));
-  bind('#setup-choice-back',()=>panel._welcomeRevisit?openMenu():save({stage:'welcome'}));
-  each('[data-setup-mode]',button=>save({mode:button.dataset.setupMode,stage:settingUpOther?'accounts':panel._config.onboarding.target_user_id===panel._config.actor.id?'device_setup':'target_device_setup'}));
+  bind('#edit-existing-setup',()=>panel._showSetupStage('edit_existing'));
+  bind('#setup-choice-back',()=>panel._welcomeRevisit?closeSetup():save({stage:'welcome'}));
+  each('[data-setup-mode]',button=>save({mode:button.dataset.setupMode,stage:'device_setup',target_user_id:panel._config.actor.id}));
   bind('#setup-other-device',()=>save({stage:'accounts',target_user_id:panel._config.actor.id}));
   bind('#device-setup-back',()=>save({stage:panel._config.onboarding.stage==='target_device_setup'?'accounts':'choice'}));
-  bind('#setup-users-back',()=>save({stage:settingUpOther?'choice':'device_setup',target_user_id:panel._config.actor.id}));
+  bind('#setup-users-back',()=>save({stage:'device_setup',target_user_id:panel._config.actor.id}));
   bind('#setup-users-next',()=>save({stage:'target_device_setup'}));
   each('[data-device-count]',button=>save({device_count:button.dataset.deviceCount,stage:button.dataset.deviceCount==='single'?'single_device':'multiple_settings'}));
   each('[data-multiple-settings]',button=>save({stage:'multiple_devices',multiple_settings:button.dataset.multipleSettings}));
@@ -148,8 +155,9 @@ export function installProductionOnboarding(panel) {
     const other=o.target_user_id!==config.actor.id,owner=config.target_user?.name||'selected user';
     q('#admin-edit-notice').hidden=!config.actor.is_admin||!other;
     q('#setup-other-device').hidden=!config.actor.is_admin||other;
-    q('#setup-menu-other').hidden=!config.actor.is_admin;
-    q('#setup-menu-resume').hidden=!o.initiated||['welcome','choice','notification_complete'].includes(o.stage);
+    q('#edit-existing-setup').hidden=!(config.actor.is_admin||o.completed||o.dashboard_available||config.own_preferences_available);
+    q('#setup-choice-back').textContent=panel._welcomeRevisit?'Close':'Back';
+    if(stage==='edit_existing')existing_ui.render();
     for(const id of ['#device-setup-for','#single-device-for','#multiple-device-for','#multiple-device-selection-for']){
       q(id).hidden=!other;q(id).textContent=other?'Setting up for '+owner:'';
     }

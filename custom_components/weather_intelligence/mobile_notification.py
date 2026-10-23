@@ -9,6 +9,8 @@ from typing import Any, Mapping
 
 from .const import (
     ALL_CLEAR_RETENTION,
+    ANDROID_SETUP_CHANNEL,
+    android_siren_channel,
     CONF_LEGACY_NOTIFY_SERVICE,
     CONF_NOTIFY_ENTITY,
     DOMAIN,
@@ -30,10 +32,6 @@ _CRITICAL_REPEAT_COUNT = 3
 _TONE_LEAD_SECONDS = 2.5
 _MIN_SPEECH_SECONDS = 5.0
 _MAX_SPEECH_SECONDS = 18.0
-# Test-phase custom channel requested by the project owner. Companion only
-# applies alarm audio attributes to the literal alarm_stream channel; this
-# channel follows Android notification settings and must be verified on-device.
-_ANDROID_SIREN_CHANNEL = "Weather Siren"
 _IOS_SETUP_TITLE = "Finish spoken weather-alert setup"
 _IOS_SETUP_MESSAGE = (
     "Tap to enable Siri announcements for Home Assistant, then run a safe test."
@@ -53,21 +51,21 @@ _ANDROID_TEST_MESSAGE = (
 
 
 class MobileTargetError(ValueError):
-    pass
+    def __init__(self, message: str, *, retry_safe: bool = True) -> None:
+        super().__init__(message)
+        self.retry_safe = retry_safe
 
 
 async def async_send_onboarding_notification(hass: Any, profile: HouseholdProfile, *, kind: str, returning: bool = False, setup_channel: str = "") -> str:
     """One exact registered phone; never enroll or start repeating alert audio."""
     if kind == "prepare":
-        # Fresh random categories cannot inherit an audible user setting. Existing
-        # urgent categories are preserved and never used for automatic setup sends.
-        if returning and not setup_channel:
-            raise MobileTargetError("A fresh silent setup category is required for a returning phone")
-        channel = setup_channel if returning else profile.urgent_channel
+        # Android callers must ask explicitly: a restored channel retains sound
+        # settings. Never generate a fresh category to pretend this is silent.
+        channel = android_siren_channel(profile.urgent_channel) if profile.mobile_platform == MOBILE_PLATFORM_ANDROID else ANDROID_SETUP_CHANNEL
         return await _async_send_to_target(hass, notify_entity="", legacy_action=profile.legacy_notify_service,
             title="SETUP ONLY — Weather Intelligence",
             message="Notification setup is ready. Return to Weather Intelligence to choose your phone settings.",
-            companion_data={"channel": channel, "importance": "low", "vibrationPattern": "", "tag": "wi_setup_" + profile.profile_id,
+            companion_data={"channel": channel, "importance": "high" if profile.mobile_platform == MOBILE_PLATFORM_ANDROID else "low", "vibrationPattern": "", "tag": "wi_setup_" + profile.profile_id,
                 "ttl": 0, "priority": "high", "push": {"interruption-level": "passive", "sound": "none"}})
     if kind == "critical" and profile.mobile_platform == "android":
         return await async_send_android_tone_speech_test(hass, profile)
@@ -158,24 +156,24 @@ async def async_send_android_setup_handoff(
             "clickAction": setup_url,
             "ttl": 0,
             "priority": "high",
-            "channel": "Weather Setup",
+            "channel": ANDROID_SETUP_CHANNEL,
         },
     )
 
 
 async def async_send_android_silent_setup(hass: Any, profile: HouseholdProfile) -> str:
-    """Create one requested siren category silently, never play a test or TTS."""
+    """Create one explicitly requested siren category; its saved sound may play."""
     _validate_android_setup_profile(profile)
     return await _async_send_to_target(
         hass,
         notify_entity=profile.notify_entity_id,
         legacy_action=profile.legacy_notify_service,
         title="SETUP ONLY — Weather Siren",
-        message=("Open this notification's settings, choose Weather Siren, select Alert "
+        message=("Open this notification's settings, choose alarm_stream, select Alert "
                  "and your sound. Popup and lock-screen content are optional."),
         companion_data={
-            "channel": profile.urgent_channel,
-            "importance": "low",
+            "channel": android_siren_channel(profile.urgent_channel),
+            "importance": "high",
             "ttl": 0,
             "priority": "high",
             "tag": f"weather_intelligence_siren_setup_{profile.profile_id}",
@@ -199,7 +197,7 @@ async def async_send_android_tone_speech_test(
             "tag": f"weather_intelligence_android_setup_{profile.profile_id}",
             "ttl": 0,
             "priority": "high",
-            "channel": profile.urgent_channel,
+            "channel": android_siren_channel(profile.urgent_channel),
             "importance": "max",
             "vibrationPattern": "100,1000,500,1000",
         },
@@ -246,10 +244,14 @@ async def async_send_profile_notification(
     channel: str | None = None,
     soft_critical: bool = False,
     actions: list[dict[str, str]] | None = None,
+    request_confirmation: bool = False,
+    delivery_ttl_seconds: int | None = None,
+    delivery_expiration: int | None = None,
 ) -> str:
     """Send one guarded official message to exactly one profile target."""
     if not profile.enabled or not profile.automatic_notifications:
         raise MobileTargetError("Automatic delivery is disabled for this profile")
+    platform = _profile_mobile_platform(hass, profile)
     companion_data: dict[str, Any] = {
         "tag": stable_tag,
         "notification_icon": WEATHER_NOTIFICATION_ICON,
@@ -265,7 +267,7 @@ async def async_send_profile_notification(
             {
                 "ttl": 0,
                 "priority": "high",
-                "channel": profile.urgent_channel,
+                "channel": android_siren_channel(profile.urgent_channel) if platform == MOBILE_PLATFORM_ANDROID else profile.urgent_channel,
                 "importance": "max",
                 "alert_once": soft_critical,
                 "push": {
@@ -311,6 +313,13 @@ async def async_send_profile_notification(
         })
     if channel and not critical:
         companion_data["channel"] = channel
+    if request_confirmation:
+        companion_data["confirmation"] = True
+    if delivery_ttl_seconds is not None:
+        companion_data["ttl"] = max(0, int(delivery_ttl_seconds))
+        companion_data["priority"] = "high"
+    if delivery_expiration is not None:
+        companion_data["apns_headers"] = {"apns-expiration": str(delivery_expiration)}
     delivery_path = await _async_send_to_target(
         hass,
         notify_entity=profile.notify_entity_id,
@@ -319,7 +328,6 @@ async def async_send_profile_notification(
         message=message,
         companion_data=companion_data,
     )
-    platform = _profile_mobile_platform(hass, profile)
     if critical and not soft_critical and platform in {
         MOBILE_PLATFORM_ANDROID,
         MOBILE_PLATFORM_IOS,
@@ -605,10 +613,10 @@ async def _async_send_to_target(
     if not notify_entity and not legacy_action:
         raise MobileTargetError("Exactly one mobile notification target must be configured")
 
-    # Advanced Companion fields are not part of notify.send_message's schema.
-    # When the exact phone action is configured, use it for tagged/critical
-    # delivery; otherwise retain the generic entity's documented title/message.
-    use_legacy = bool(legacy_action and companion_data)
+    # One selected Companion phone handles both basic and advanced messages.
+    # A basic notify entity is used only when no Companion action is configured.
+    # Never silently switch to another target after a delivery failure.
+    use_legacy = bool(legacy_action)
     if notify_entity and not use_legacy:
         if (
             not notify_entity.startswith("notify.")
@@ -629,7 +637,7 @@ async def _async_send_to_target(
                 blocking=True,
             )
         except Exception as error:
-            raise MobileTargetError("The configured notify entity could not receive the message") from error
+            raise MobileTargetError("The configured notify entity could not receive the message", retry_safe=False) from error
         return "notify_entity"
 
     if (
@@ -653,5 +661,5 @@ async def _async_send_to_target(
             blocking=True,
         )
     except Exception as error:
-        raise MobileTargetError("The configured Companion action could not receive the message") from error
+        raise MobileTargetError("The configured Companion action could not receive the message", retry_safe=False) from error
     return "legacy_mobile_action"

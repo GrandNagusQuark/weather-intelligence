@@ -24,6 +24,9 @@ server owner from replacing code, modifying stored records or disabling checks.
 
 Do Not Disturb bypass also depends on phone permissions and platform behavior.
 An earlier confirmed test is not proof of current operating system permission.
+Android critical sirens use the literal `alarm_stream` category and require DND
+to allow alarms. Do not enable a Home Assistant app-wide exception as a substitute.
+Routine Weather Intelligence messages stay on normal notification channels.
 
 The optional reporting sender accepts a reviewed HTTPS destination and sends only
 fixed diagnostic fields. The project service relays to a private receiver on the

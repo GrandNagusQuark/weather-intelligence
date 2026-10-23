@@ -55,7 +55,7 @@ export function vectorCamera(center, zoom) {
   return {center:[center[1],center[0]], zoom:zoom-1, bearing:0, pitch:0};
 }
 
-export async function createVectorBasemap(container, shadowRoot, center, zoom, onStatus) {
+export async function createVectorBasemap(container, shadowRoot, center, zoom, onStatus, onRender = ()=>{}) {
   const [runtime, response] = await Promise.all([
     import(RUNTIME.href), fetch(OPENFREEMAP_STYLE, {credentials:"omit", referrerPolicy:"no-referrer"})
   ]);
@@ -66,11 +66,16 @@ export async function createVectorBasemap(container, shadowRoot, center, zoom, o
   runtime.setWorkerUrl(WORKER.href);
   runtime.setWorkerCount(1); // Browser work only; no map processing on the HA host.
   const map = new runtime.Map({container, style, ...vectorCamera(center,zoom),
-    interactive:false, attributionControl:false, renderWorldCopies:false,
+    interactive:false, attributionControl:false, renderWorldCopies:true,
     maxTileCacheSize:64, maxTileCacheZoomLevels:3, fadeDuration:0,
     transformRequest:basemapRequest});
   map.on("error", () => onStatus("Some road-map detail unavailable."));
   map.on("idle", () => onStatus(""));
-  return {sync(nextCenter,nextZoom) {map.resize(); map.jumpTo(vectorCamera(nextCenter,nextZoom));},
+  map.on("render", () => {const point=map.getCenter(); onRender([point.lat,point.lng],map.getZoom()+1);});
+  let width=container.clientWidth,height=container.clientHeight;
+  return {sync(nextCenter,nextZoom) {
+    if(width!==container.clientWidth||height!==container.clientHeight){width=container.clientWidth;height=container.clientHeight;map.resize();}
+    map.jumpTo(vectorCamera(nextCenter,nextZoom));
+  },
     remove() {map.remove(); link.remove();}};
 }

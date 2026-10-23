@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Mapping
 
+from .const import ANDROID_SIREN_CHANNEL
+
 
 class LocationFreshness(str, Enum):
     FRESH = "fresh"
@@ -220,7 +222,7 @@ class HouseholdProfile:
     marine_warning_mode: str = "always"
     companion_device_id: str = ""
     dnd_rule_ids: tuple[str, ...] | None = None
-    urgent_channel: str = "Weather Siren"
+    urgent_channel: str = ANDROID_SIREN_CHANNEL
     daily_outlook_time: str = ""
     life_safety_events: tuple[str, ...] = ()
     marine_nearby_enabled: bool = False
@@ -257,3 +259,4 @@ class BriefingDeliveryRecord:
     delivered_at: datetime | None = None
     pending: bool = False
     last_attempt_at: datetime | None = None
+    confirmed_at: datetime | None = None

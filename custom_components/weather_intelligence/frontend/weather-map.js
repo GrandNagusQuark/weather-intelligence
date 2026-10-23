@@ -1,6 +1,6 @@
 // Small client-only map. NOAA renders radar; we draw official GeoJSON polygons.
 // No radar processing, location history, or developer telemetry on the HA host.
-import {createVectorBasemap} from "./weather-basemap.js";
+import {createVectorBasemap} from "./weather-basemap.js?v=2";
 const NOAA_RADAR = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/export";
 const NOAA_WARNINGS = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/WWA/watch_warn_adv/MapServer/0/query";
 const NOAA_WARNING_AREAS = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/WWA/watch_warn_adv/MapServer/1/query";
@@ -82,8 +82,9 @@ export function roadTilePlan(center, zoom, width, height, pixelRatio = 1) {
   const z = Math.max(4,Math.min(19,Math.ceil(zoom+Math.log2(Math.max(1,Math.min(2,pixelRatio)))))), scale = 2 ** (zoom-z), size = 256*scale, count = 2 ** z;
   const point = projectPoint(...center,z), origin = [point[0]-width/(2*scale),point[1]-height/(2*scale)], tiles = [];
   for (let y=Math.max(0,Math.floor(origin[1]/256)-1); y<=Math.min(count-1,Math.floor((origin[1]+height/scale)/256)+1); y++) {
-    for (let x=Math.max(0,Math.floor(origin[0]/256)-1); x<=Math.min(count-1,Math.floor((origin[0]+width/scale)/256)+1); x++) {
-      tiles.push({key:`${z}/${y}/${x}`,z,x,y,left:(x*256-origin[0])*scale,top:(y*256-origin[1])*scale,size});
+    for (let x=Math.floor(origin[0]/256)-1; x<=Math.floor((origin[0]+width/scale)/256)+1; x++) {
+      const wrapped=((x%count)+count)%count;
+      tiles.push({key:`${z}/${y}/${wrapped}`,z,x:wrapped,y,left:(x*256-origin[0])*scale,top:(y*256-origin[1])*scale,size});
     }
   }
   return tiles.sort((a,b)=>Math.hypot(a.left+size/2-width/2,a.top+size/2-height/2)-Math.hypot(b.left+size/2-width/2,b.top+size/2-height/2));
@@ -122,7 +123,20 @@ export function projectPoint(latitude, longitude, zoom) {
 export function unprojectPoint(x, y, zoom) {
   const size = 256 * 2 ** zoom;
   const latitude = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI;
-  return [Math.max(-85, Math.min(85, latitude)), Math.max(-180, Math.min(180, x / size * 360 - 180))];
+  return [Math.max(-85, Math.min(85, latitude)), x / size * 360 - 180];
+}
+
+export function nearestLongitude(longitude, center) {return longitude+360*Math.round((center-longitude)/360);}
+
+// Split requests at the date line; ArcGIS queries always use canonical bounds.
+export function wrappedViewParts(bbox,width) {
+  const result=[],span=bbox[2]-bbox[0];
+  for(let world=Math.floor((bbox[0]+WORLD/2)/WORLD);world<=Math.floor((bbox[2]+WORLD/2)/WORLD);world++){
+    const left=Math.max(bbox[0],world*WORLD-WORLD/2),right=Math.min(bbox[2],world*WORLD+WORLD/2);
+    if(right<=left)continue;
+    result.push({bbox:[left-world*WORLD,bbox[1],right-world*WORLD,bbox[3]],left:(left-bbox[0])/span*width,width:(right-left)/span*width});
+  }
+  return result;
 }
 
 export function gestureView(center, zoom, startOffset, endOffset, scale = 1) {
@@ -133,13 +147,25 @@ export function gestureView(center, zoom, startOffset, endOffset, scale = 1) {
     (world[1] + startOffset[1]) * factor - endOffset[1], nextZoom)};
 }
 
-export function polygonPath(geometry, toPixel) {
+export function polygonPath(geometry, toPixel, centerLongitude = 0) {
   const polygons = geometry?.type === "Polygon" ? [geometry.coordinates] :
     geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
-  return polygons.flatMap(polygon => polygon.map(ring => ring.map((point, i) => {
+  return polygons.flatMap(polygon => polygon.map(ring => {
+    if(!ring.length)return '';
+    let previous=ring[0][0],west=Infinity,east=-Infinity;
+    const continuous=ring.map(point=>{
+      const longitude=nearestLongitude(point[0],previous);previous=longitude;
+      west=Math.min(west,longitude);east=Math.max(east,longitude);return [longitude,point[1]];
+    });
+    // Real state/coastal rings can exceed the engine's function argument limit.
+    // Never spread their vertices into Math.min/Math.max.
+    const middle=(west+east)/2;
+    const shift=360*Math.round((centerLongitude-middle)/360);
+    return continuous.map(([lon,lat],i)=>{
+    const point=[lon+shift,lat];
     const [x, y] = toPixel(point[1], point[0]);
     return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ") + " Z")).join(" ");
+  }).join(" ") + " Z";})).join(" ");
 }
 
 export function linePath(geometry,toPixel) {
@@ -182,14 +208,15 @@ export class WeatherRadarMap extends HTMLElement {
     this.shadowRoot.innerHTML = `<style>
       :host{display:block}.map{height:390px;position:relative;overflow:hidden;border-radius:12px;background:#1e2b38;isolation:isolate;touch-action:pan-y;user-select:none}.map.dragging{cursor:grabbing}@media(hover:hover){.map{cursor:grab}}
       .tiles,.radar,.polygons,.people{position:absolute;inset:0;pointer-events:none}.tiles img{position:absolute;width:256px;height:256px;max-width:none}
-      .radar img,.tiles img{position:absolute;left:0;top:0;max-width:none;opacity:.78;transform-origin:0 0}.polygons svg{width:100%;height:100%;overflow:hidden}.polygons path.warning{pointer-events:visiblePainted;cursor:pointer}
+      .radar img,.radar-frame,.tiles img{position:absolute;left:0;top:0;max-width:none;opacity:.78;transform-origin:0 0}.radar-frame{opacity:1}.polygons svg{width:100%;height:100%;overflow:visible}.polygons path.warning{pointer-events:visiblePainted;cursor:pointer}
       .tiles.census{filter:invert(1) hue-rotate(180deg) saturate(.65) brightness(1.05);mix-blend-mode:screen}
       .controls{position:absolute;top:10px;left:10px;display:flex;gap:5px;flex-wrap:wrap;max-width:80%}button{background:#172330;color:white;border:1px solid #607080;border-radius:6px;padding:8px 11px;cursor:pointer}
       .person{position:absolute;transform:translate(-50%,-50%);border-radius:50%;border:1px solid white;background:#136db5;color:white;width:20px;height:20px;padding:0;line-height:20px;text-align:center;font:600 11px/20px system-ui;white-space:nowrap;box-shadow:0 0 2px #233544;pointer-events:auto;cursor:pointer}
+      .person.stale,.key-marker.stale{background:#526579;border-style:dashed}.home-marker{position:absolute;transform:translate(-50%,-50%);font:bold 20px system-ui;color:#c9ddf0;text-shadow:0 0 2px #0e1a25}
       .people-key{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px;color:var(--primary-text-color)}.key-marker{display:inline-block;border-radius:50%;background:#136db5;color:white;width:20px;height:20px;font:600 11px/20px system-ui;text-align:center;margin-right:5px}
       .key-entry{display:inline-flex;align-items:center;background:none;border:0;padding:0;color:var(--primary-text-color);font:inherit;cursor:pointer}.key-entry:hover{text-decoration:underline}.key-entry:focus-visible{outline:2px solid var(--primary-color)}
       .attribution{position:absolute;bottom:0;right:0;background:#172330e8;color:#fff;padding:4px 7px;font:11px system-ui}.attribution a{color:#c9e9ff}
-      .status{font-size:12px;margin-top:8px;color:var(--secondary-text-color);height:54px;line-height:18px}.status>div{height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px}.legend[hidden],.legend-note[hidden]{display:none}.legend span:before{content:"";display:inline-block;width:14px;border-top:3px solid var(--line);margin-right:5px;vertical-align:middle}.legend span.advisory:before{border-top-style:dashed}.legend-note{font-size:12px;margin-top:8px;color:var(--secondary-text-color)}
+      .status{font-size:12px;margin-top:8px;color:var(--secondary-text-color);line-height:18px}.status>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status>div:empty{display:none}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px}.legend[hidden],.legend-note[hidden]{display:none}.legend span:before{content:"";display:inline-block;width:14px;border-top:3px solid var(--line);margin-right:5px;vertical-align:middle}.legend span.advisory:before{border-top-style:dashed}.legend-note{font-size:12px;margin-top:8px;color:var(--secondary-text-color)}
       .selection{min-height:1.2em;font-size:13px;padding-top:7px}.selection a{color:var(--primary-color)}@media(max-width:560px){.map{height:320px}}
       .gesture-hint{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);background:#172330eb;color:white;padding:7px 12px;border-radius:8px;font:13px system-ui;pointer-events:none;white-space:nowrap}.gesture-hint[hidden]{display:none}.interaction-help{font-size:12px;margin-top:8px;color:var(--secondary-text-color)}
       @media(prefers-reduced-motion:reduce){.tiles,.radar,.polygons,.people{transition:none!important}}
@@ -200,8 +227,9 @@ export class WeatherRadarMap extends HTMLElement {
       <div class="attribution"></div></div>
       <div class="interaction-help" id="interaction-help">Drag to pan · Shift + scroll to zoom · On phones, use two fingers to move or pinch to zoom.</div>
       <div class="interaction-help">Map warnings may appear after official issuance. Follow the official alert.</div>
+      <div class="people-key" aria-label="Person marker key"></div>
       <div class="legend-note" role="status"></div><div class="legend" aria-label="Active alert types across U.S. coverage" hidden></div>
-      <div class="status" role="status"><div data-map-status="radar"></div><div data-map-status="warnings"></div><div data-map-status="base"></div></div><div class="people-key" aria-label="Person marker key"></div><div class="selection"></div>`;
+      <div class="status" role="status"><div data-map-status="radar"></div><div data-map-status="warnings"></div><div data-map-status="base"></div></div><div class="selection"></div>`;
     this.shadowRoot.querySelectorAll("[data-zoom]").forEach(button => button.onclick = () => {
       this._changeZoom(Number(button.dataset.zoom));
     });
@@ -282,6 +310,12 @@ export class WeatherRadarMap extends HTMLElement {
       const basemap = await createVectorBasemap(this.shadowRoot.querySelector(".tiles"),this.shadowRoot,this._center,this._zoom,text=>{
         if (!this.isConnected) return;
         this._statuses.roads=text; this._status();
+      },(center,zoom)=>{
+        if(!this.isConnected)return;
+        const {width,height}=this._view();
+        this._renderedVectorView={center,zoom,width,height};
+        this._positionRaster(this.shadowRoot.querySelector('.radar'),this._radarExtent,this._renderedVectorView);
+        this._positionOverlays(this._renderedVectorView);
       });
       if (!this.isConnected) {basemap.remove(); return;}
       this._vectorMap=basemap; this._renderRoadTiles();
@@ -426,7 +460,7 @@ export class WeatherRadarMap extends HTMLElement {
     const selected=Array.isArray(value.map_alert_events)?[...value.map_alert_events]:null;
     const choicesChanged=JSON.stringify(selected)!==JSON.stringify(this._selectedEvents ?? null);
     this._selectedEvents=selected;
-    const fingerprint = JSON.stringify([value.people, value.monitored_polygons,selected]);
+    const fingerprint = JSON.stringify([value.people,value.users,value.home_marker,value.monitored_polygons,selected]);
     if (fingerprint === this._dataFingerprint) return;
     this._dataFingerprint = fingerprint;
     const users = value.users || value.people || [];
@@ -436,6 +470,8 @@ export class WeatherRadarMap extends HTMLElement {
     });
     this._fallback = value.monitored_polygons || [];
     this._homeMarker = value.home_marker;
+    this._mapUsers=users.map((user,index)=>({...user,marker_code:markerCode(index)})).filter(user=>user.map_visible!==false);
+    this._drawPeopleKey();
     if (choicesChanged) {
       this._warnings=[]; this._legendRecords=null; this._legendState="loading";
       this._loadLegend(); this._loadView();
@@ -449,7 +485,7 @@ export class WeatherRadarMap extends HTMLElement {
   }
 
   _positionRaster(root, source, target) {
-    const image = root.querySelector("img"); if (!image || !source) return;
+    const image = root.querySelector(".radar-frame") || root.querySelector("img"); if (!image || !source) return;
     const scale = 2 ** (target.zoom-source.zoom);
     const before = projectPoint(...source.center,source.zoom), after = projectPoint(...target.center,target.zoom);
     const dx = (before[0]-source.width/2)*scale-after[0]+target.width/2;
@@ -460,22 +496,32 @@ export class WeatherRadarMap extends HTMLElement {
 
   _rasterView() {const {width,height}=this._view(); return {center:[...this._center],zoom:this._zoom,width,height};}
 
+  _positionOverlays(target) {
+    this._drawPeople(target);
+    const source=this._overlayExtent;if(!source)return;
+    const scale=2**(target.zoom-source.zoom),before=projectPoint(...source.center,source.zoom),after=projectPoint(...target.center,target.zoom);
+    const dx=(before[0]-source.width/2)*scale-after[0]+target.width/2,dy=(before[1]-source.height/2)*scale-after[1]+target.height/2;
+    for(const layer of this.shadowRoot.querySelectorAll('.polygons')){
+      layer.style.transformOrigin='0 0';layer.style.transform=`translate(${dx}px,${dy}px) scale(${scale})`;
+    }
+  }
+
   _queuePanDraw() {
     if (this._panFrame) return;
     this._panFrame=requestAnimationFrame(()=>{
       this._panFrame=null; if (!this.isConnected) return;
-      this._positionRaster(this.shadowRoot.querySelector(".radar"),this._radarExtent,this._rasterView());
-      this._renderRoadTiles(); this._drawOverlays();
+      this._renderRoadTiles();
+      if(!this._vectorEnabled){
+        const view=this._rasterView();
+        this._positionRaster(this.shadowRoot.querySelector(".radar"),this._radarExtent,view);
+        this._positionOverlays(view);
+      }
     });
   }
 
   _schedulePanFetch() {
-    if (this._panFetchTimer) return;
-    this._panFetchTimer=setTimeout(()=>{
-      this._panFetchTimer=null; if (!this._drag && !this._touchGesture) return;
-      if (this._requestInFlight) {this._schedulePanFetch(); return;}
-      this._loadView();
-    },300);
+    // Existing geometry follows the camera immediately. Refresh once on release,
+    // not while dragging, which used to rebuild the entire SVG mid-gesture.
   }
 
   _renderRoadTiles() {
@@ -526,7 +572,7 @@ export class WeatherRadarMap extends HTMLElement {
   }
 
   async _loadView() {
-    if (!this.isConnected || document.hidden || this.offsetParent === null || this._zoomMotion) return;
+    if (!this.isConnected || document.hidden || this.offsetParent === null || this._zoomMotion || this._drag || this._touchGesture) return;
     const {width, height, origin, bbox} = this._view();
     if (width < 1) return;
     const generation = this._generation = (this._generation || 0) + 1;
@@ -543,17 +589,22 @@ export class WeatherRadarMap extends HTMLElement {
     const referenceRequest = this._loadReference(bbox, width, height, generation, controller.signal, view);
     this._warnings = this._warnings.filter(feature => {const until=Date.parse(feature.properties?.expiration); return !Number.isFinite(until) || until>Date.now();});
     this._drawOverlays();
-    const params = new URLSearchParams({f: "image", bbox: bbox.join(","), bboxSR: "3857", imageSR: "3857", size: `${width},${height}`, format: "png32", transparent: "true", layers: "show:3", _ts: String(Math.floor(Date.now() / 300000))});
-    const radar = document.createElement("img"); radar.alt = "Latest available NOAA radar reflectivity";
-    radar.style.width = `${width}px`; radar.style.height = `${height}px`;
-    radar.onload = () => {if (generation !== this._generation) return; this._radarExtent=view; radarRoot.replaceChildren(radar); this._positionRaster(radarRoot,view,this._rasterView()); this._statuses.radar = this._zoom>=13 ? "Street zoom does not increase radar resolution." : ""; this._status();};
-    radar.onerror = () => {if (generation === this._generation) {this._statuses.radar = this._radarExtent ? "Radar refresh unavailable — older image retained; do not infer clear weather." : "Radar unavailable — not an indication of clear weather."; this._status();}};
-    radar.src = `${NOAA_RADAR}?${params}`;
+    const regions=wrappedViewParts(bbox,width),frame=document.createElement('div');frame.className='radar-frame';
+    let remaining=regions.length,failed=false;
+    for(const region of regions){
+      const params = new URLSearchParams({f: "image", bbox: region.bbox.join(","), bboxSR: "3857", imageSR: "3857", size: `${Math.max(1,Math.round(region.width))},${height}`, format: "png32", transparent: "true", layers: "show:3", _ts: String(Math.floor(Date.now() / 300000))});
+      const radar = document.createElement("img"); radar.alt = "Latest available NOAA radar reflectivity";
+      radar.style.left=`${region.left}px`;radar.style.width = `${region.width}px`; radar.style.height = `${height}px`;frame.append(radar);
+      radar.onload = () => {if (generation !== this._generation||failed||--remaining) return; this._radarExtent=view; radarRoot.replaceChildren(frame); this._positionRaster(radarRoot,view,this._renderedVectorView||this._rasterView()); this._statuses.radar = this._zoom>=13 ? "Street zoom does not increase radar resolution." : ""; this._status();};
+      radar.onerror = () => {failed=true;if (generation === this._generation) {this._statuses.radar = this._radarExtent ? "Radar refresh unavailable — older image retained; do not infer clear weather." : "Radar unavailable — not an indication of clear weather."; this._status();}};
+      radar.src = `${NOAA_RADAR}?${params}`;
+    }
     try {
-      const query = new URLSearchParams({f: "geojson", where: stormWarningWhere(this._selectedEvents), geometry: bbox.join(","), geometryType: "esriGeometryEnvelope", inSR: "3857", outSR: "4326", spatialRel: "esriSpatialRelIntersects", outFields: "objectid,prod_type,expiration,cap_id,url", returnGeometry: "true", resultRecordCount: "200", geometryPrecision:"5"});
+      const parts=await Promise.all(regions.flatMap(region=>{
+      const query = new URLSearchParams({f: "geojson", where: stormWarningWhere(this._selectedEvents), geometry: region.bbox.join(","), geometryType: "esriGeometryEnvelope", inSR: "3857", outSR: "4326", spatialRel: "esriSpatialRelIntersects", outFields: "objectid,prod_type,expiration,cap_id,url", returnGeometry: "true", resultRecordCount: "200", geometryPrecision:"5"});
       const areaQuery = new URLSearchParams(query);
       areaQuery.set("where",warningAreaWhere(this._selectedEvents));
-      const parts = await Promise.all([warningFeatures(NOAA_WARNINGS,query,controller.signal),warningFeatures(NOAA_WARNING_AREAS,areaQuery,controller.signal)]);
+      return [warningFeatures(NOAA_WARNINGS,query,controller.signal),warningFeatures(NOAA_WARNING_AREAS,areaQuery,controller.signal)];}));
       if (generation !== this._generation) return;
       this._warnings = parts.flat().filter(feature => {
         const until = Date.parse(feature.properties?.expiration);
@@ -571,6 +622,7 @@ export class WeatherRadarMap extends HTMLElement {
 
   _drawOverlays() {
     if (!this.shadowRoot.querySelector(".map")) return;
+    if(this._drag||this._touchGesture){this._drawPeople(this._renderedVectorView||this._rasterView());return;}
     const {width, height, origin} = this._view();
     const toPixel = (lat, lon) => {const p = projectPoint(lat, lon, this._zoom); return [p[0] - origin[0], p[1] - origin[1]];};
     const svg = document.createElementNS(SVG_NS, "svg"); svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -579,13 +631,13 @@ export class WeatherRadarMap extends HTMLElement {
       if (kind === "county" && this._zoom < 7) continue;
       for (const feature of boundaries) {
         const bold = kind === "county" && this._people.some(person => countyContains(feature.geometry, person.longitude, person.latitude));
-        const path = document.createElementNS(SVG_NS, "path"); path.setAttribute("d", polygonPath(feature.geometry, toPixel)); path.setAttribute("fill", "none");
+        const path = document.createElementNS(SVG_NS, "path"); path.setAttribute("d", polygonPath(feature.geometry, toPixel,this._center[1])); path.setAttribute("fill", "none");
         path.setAttribute("stroke", bold ? "#d1e0eb" : kind === "state" ? "#91a6b9" : "#586b7d");
         path.setAttribute("stroke-width", bold ? "2.5" : kind === "state" ? "1.8" : ".8"); svg.append(path);
         const props = feature.properties || {};
         const name = kind === "county" ? props.countyname : props.state;
         if (name && (kind === "state" || this._zoom >= 8) && Number.isFinite(props.lat) && Number.isFinite(props.lon)) {
-          const [x, y] = toPixel(props.lat, props.lon);
+          const [x, y] = toPixel(props.lat, nearestLongitude(props.lon,this._center[1]));
           if (x > 20 && x < width - 20 && y > 45 && y < height - 20 && !labels.some(p => Math.abs(p[0] - x) < 65 && Math.abs(p[1] - y) < 18)) {
             const text = document.createElementNS(SVG_NS, "text"); text.setAttribute("x", x); text.setAttribute("y", y); text.setAttribute("text-anchor", "middle"); text.setAttribute("fill", "#c9d7e3"); text.setAttribute("font-size", kind === "state" ? "13" : "10"); text.setAttribute("font-family", "system-ui"); text.setAttribute("paint-order", "stroke"); text.setAttribute("stroke", "#1e2b38"); text.setAttribute("stroke-width", "2.5"); text.textContent = name; svg.append(text); labels.push([x, y]);
           }
@@ -600,7 +652,7 @@ export class WeatherRadarMap extends HTMLElement {
       const event = eventName(feature), style=warningStyle(event);
       const path = document.createElementNS(SVG_NS, "path");
       path.classList.add("warning");
-      path.setAttribute("d", polygonPath(feature.geometry, toPixel));
+      path.setAttribute("d", polygonPath(feature.geometry, toPixel,this._center[1]));
       const color = style.color;
       path.setAttribute("fill", color); path.setAttribute("fill-opacity", ".07"); path.setAttribute("fill-rule", "evenodd"); path.setAttribute("stroke", color); path.setAttribute("stroke-width", "2.5");
       if (style.dash) path.setAttribute("stroke-dasharray",style.dash);
@@ -609,28 +661,52 @@ export class WeatherRadarMap extends HTMLElement {
       svg.append(path);
     }
     this.shadowRoot.querySelector(".polygons").replaceChildren(svg);
-    const people = this.shadowRoot.querySelector(".people"); people.replaceChildren();
+    this._overlayExtent=this._rasterView();
+    this._positionOverlays(this._vectorEnabled?(this._renderedVectorView||this._overlayExtent):this._overlayExtent);
+  }
+
+  _drawPeople(view) {
+    const people=this.shadowRoot.querySelector('.people');if(!people)return;
+    // Reproject only a handful of points, not every warning vertex. Markers keep
+    // their size and can enter the viewport during a drag or a repeated world.
+    people.style.transform='';people.replaceChildren();
+    const {width,height,zoom,center}=view,origin=projectPoint(...center,zoom);
+    const toPixel=(lat,lon)=>{const p=projectPoint(lat,nearestLongitude(lon,center[1]),zoom);return [p[0]-origin[0]+width/2,p[1]-origin[1]+height/2];};
     if (this._homeMarker) {
       const [x, y] = toPixel(...this._homeMarker);
       if (x >= 0 && x <= width && y >= 0 && y <= height) {
-        const marker = document.createElement("span"); marker.textContent = "✳"; marker.title = "Designated home";
-        marker.style.cssText = `position:absolute;left:${x}px;top:${y}px;transform:translate(-50%,-50%);font:bold 20px system-ui;color:#c9ddf0;text-shadow:0 0 2px #0e1a25;`;
+        const marker = document.createElement("span"); marker.className='home-marker';marker.textContent = "✳"; marker.title = "Designated home";
+        marker.style.left=`${x}px`;marker.style.top=`${y}px`;
         people.append(marker);
       }
     }
     for (const person of this._people) {
-      const [x, y] = toPixel(person.latitude, person.longitude);
+      const [x, y] = toPixel(person.latitude,person.longitude);
       if (x < 0 || x > width || y < 0 || y > height) continue;
-      const marker = document.createElement("button"); marker.className = "person"; marker.type="button";
-      marker.textContent = person.marker_code; marker.title = person.name; marker.setAttribute("aria-label",person.name);
+      const marker = document.createElement("button"); marker.className = `person${person.location_stale?' stale':''}`; marker.type="button";
+      const label=this._personLabel(person);
+      marker.textContent = person.marker_code; marker.title = label; marker.setAttribute("aria-label",label);
       marker.onclick=()=>this.focusPerson(person.profile_id);
       marker.style.left = `${x}px`; marker.style.top = `${y}px`; people.append(marker);
     }
-    const key = this.shadowRoot.querySelector(".people-key"); key.replaceChildren();
-    for (const person of this._people) {
-      const entry = document.createElement("button"), badge = document.createElement("span"); entry.className="key-entry"; entry.type="button"; entry.setAttribute("aria-label",`Center map on ${person.name}`); entry.onclick=()=>this.focusPerson(person.profile_id);
-      badge.className = "key-marker"; badge.textContent = person.marker_code;
-      entry.append(badge,document.createTextNode(person.name)); key.append(entry);
+  }
+
+  _personLabel(person) {
+    if(!person.location_stale)return person.name;
+    const updated=Date.parse(person.location_updated_at);
+    return `${person.name} · Last known location${Number.isFinite(updated)?' · '+new Date(updated).toLocaleString():''}`;
+  }
+
+  _drawPeopleKey() {
+    const key=this.shadowRoot.querySelector('.people-key');if(!key)return;
+    key.replaceChildren();
+    for(const user of this._mapUsers || this._people){
+      const person=this._people.find(p=>p.profile_id===user.profile_id);
+      const entry=document.createElement(person?'button':'span'),badge=document.createElement('span');entry.className='key-entry';
+      if(person){entry.type='button';entry.setAttribute('aria-label',`Center map on ${user.name}`);entry.onclick=()=>this.focusPerson(user.profile_id);entry.title=this._personLabel(person);}
+      badge.className=`key-marker${person?.location_stale?' stale':''}`;badge.textContent=person?.marker_code||user.marker_code;
+      const label=`${user.name}${!person?' · Location unavailable':person.location_stale?' · Last known location':''}`;
+      entry.append(badge,document.createTextNode(label));key.append(entry);
     }
   }
 
@@ -642,12 +718,14 @@ export class WeatherRadarMap extends HTMLElement {
     try {
       const layers = this._zoom >= 7 ? [2,3] : [3];
       const results = await Promise.all(layers.map(async layer => {
-        const query = new URLSearchParams({f:"geojson",where:"1=1",geometry:bbox.join(","),geometryType:"esriGeometryEnvelope",inSR:"3857",outSR:"4326",outFields:layer===2?"countyname,state,fips,lat,lon":"state,name,lat,lon",returnGeometry:"true",resultRecordCount:layer===2?"500":"60",geometryPrecision:"5"});
+        const parts=await Promise.all(wrappedViewParts(bbox,width).map(async region=>{
+        const query = new URLSearchParams({f:"geojson",where:"1=1",geometry:region.bbox.join(","),geometryType:"esriGeometryEnvelope",inSR:"3857",outSR:"4326",outFields:layer===2?"countyname,state,fips,lat,lon":"state,name,lat,lon",returnGeometry:"true",resultRecordCount:layer===2?"500":"60",geometryPrecision:"5"});
         const response = await fetch(`${NOAA_REFERENCE}/${layer}/query?${query}`, {signal});
         if (!response.ok) throw new Error("Reference map unavailable");
         const body = await response.json();
         if (!Array.isArray(body.features) || body.exceededTransferLimit) throw new Error("Reference map incomplete");
-        return [layer, body.features];
+        return body.features;}));
+        return [layer, parts.flat()];
       }));
       if (generation !== this._generation) return;
       this._referenceKey = key;

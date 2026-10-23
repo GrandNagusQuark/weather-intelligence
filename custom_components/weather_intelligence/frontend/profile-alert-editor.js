@@ -1,6 +1,6 @@
 import {ALERT_CHOICE_SCREEN} from './alert-setup.js?v=23';
 import {ALERT_SELECTION_STYLE,installTierCards,renderSelectableAlerts} from './onboarding-alert-ui.js?v=8';
-import {alertRiskPresentation} from './onboarding-flow.js?v=15';
+import {alertRiskPresentation} from './onboarding-flow.js?v=19';
 import {profileAlertEvents,tierEvents,tierState,toggleProfileTier,renderProfileAlertGrid} from './profile-alert-choices.js?v=4';
 import {ProfileDndEditor} from './profile-dnd-editor.js?v=4';
 import {marineNearbyControls,installMarineNearby,renderMarineNearby} from './marine-preferences-ui.js?v=2';
@@ -70,8 +70,11 @@ export class ProfileAlertEditor {
     if(!this.grid.open)this.grid.showModal();
   }
 
-  openProfiles(snapshot,save) {
-    const choose=profile=>this.open(profile,snapshot.pages,snapshot.choices,{apply:save,applyLabel:'Save changes',notice:snapshot.notice_profile_ids.includes(profile.profile_id),dndCatalog:snapshot.dnd_catalog,dndSetup:snapshot.dnd_setup?.[profile.profile_id]});
+  openProfiles(snapshot,save,{initialSection='alerts'}={}) {
+    const choose=profile=>{
+      this.open(profile,snapshot.pages,snapshot.choices,{apply:save,applyLabel:'Save changes',notice:snapshot.notice_profile_ids.includes(profile.profile_id),dndCatalog:snapshot.dnd_catalog,dndSetup:snapshot.dnd_setup?.[profile.profile_id]});
+      if(initialSection==='dnd')this.openDnd();
+    };
     if(snapshot.profiles.length===1){choose(snapshot.profiles[0]);return;}
     this.root.querySelector('#profile-device-name').textContent=snapshot.profiles.length?'Choose the device you want to edit.':'No device settings yet. Complete device onboarding first.';
     this.root.querySelector('#profile-devices').innerHTML=`<div class="hazard-grid">${snapshot.profiles.map((profile,index)=>`<button type="button" data-device-index="${index}">${this.escape(profile.name || 'Device')}</button>`).join('')}</div>`;

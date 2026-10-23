@@ -46,5 +46,10 @@ renderer. Its bundled notices are preserved in
 including the upstream notices carried there. Shapely is installed by Home
 Assistant according to the integration manifest and retains its own license.
 
+Android critical sirens use Companion's documented
+[`alarm_stream` route](https://companion.home-assistant.io/docs/notifications/critical-notifications/#alarm-stream).
+That literal category name enables alarm audio; a custom Weather Siren label
+does not. Phone sound and DND settings still govern playback.
+
 The selected core license is AGPL v3 only, included in LICENSE. External services and
 data retain their own terms. No blanket license is asserted for their content.

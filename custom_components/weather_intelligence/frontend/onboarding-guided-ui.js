@@ -45,6 +45,7 @@ export const SETUP_CHOICES = `
     <button class="setup-choice" data-setup-mode="quick" aria-pressed="false"><strong>Quick setup</strong><span>Set up your devices and receive weather notifications with recommended settings.</span></button>
     <button class="setup-choice" data-setup-mode="guided" aria-pressed="false"><strong>Guided quick setup</strong><span>Answer a few questions to tailor recommended alerts to the places you go and the things you do.</span></button>
     <button class="setup-choice" data-setup-mode="custom" aria-pressed="false"><strong>Custom setup</strong><span>Choose your alerts, devices, and preferences.</span></button>
+    <button id="edit-existing-setup" class="setup-choice" hidden><strong>Edit existing setup</strong><span>Change alerts, notification settings, or use saved settings on another device.</span></button>
   </div>
   <p class="setup-reassurance">You can change your choices later.</p>
   <button id="setup-choice-back" class="setup-back">Back</button>`;

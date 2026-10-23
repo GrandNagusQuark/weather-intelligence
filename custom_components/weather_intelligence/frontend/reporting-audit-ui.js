@@ -2,11 +2,17 @@ const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;'
 const RESULTS={prepared:'Prepared. Delivery is not confirmed.',accepted:'Receiver confirmed acceptance.',
   not_accepted:'Receiver did not confirm acceptance.',unconfirmed:'Delivery outcome is unknown.'};
 
+export function auditReportTitle(report) {
+  if(report.error_code)return report.error_code;
+  if(report.source&&report.state)return `Outage contribution: ${report.source} · ${report.state}`;
+  return 'Diagnostic report';
+}
+
 export function auditMarkup(snapshot) {
   return `<section class="wi-reporting"><h3>Reporting history</h3>
     <p>This local audit shows the exact sanitized report prepared for the developer and its delivery result. Entries are kept for ${escapeHtml(snapshot.retention_days)} days. A confirmed receipt does not mean the developer has read it. There are no raw logs here.</p>
     ${snapshot.entries.map(row=>`<article style="border-top:1px solid var(--divider-color,#536274);padding:14px 0">
-      <strong>${escapeHtml(row.report.error_code)}</strong><p>${escapeHtml(row.attempted_at)}<br>${escapeHtml(RESULTS[row.result]||'Unknown outcome')}<br>Destination: ${escapeHtml(row.endpoint)}</p>
+      <strong>${escapeHtml(auditReportTitle(row.report))}</strong><p>${escapeHtml(row.attempted_at)}<br>${escapeHtml(RESULTS[row.result]||'Unknown outcome')}<br>Destination: ${escapeHtml(row.endpoint)}</p>
       <details><summary>View the exact report fields</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(row.report,null,2))}</pre></details></article>`).join('')}
     ${snapshot.entries.length?'':'<p>No reporting attempts in this period.</p>'}
     <div class="actions"><button id="audit-previous" ${snapshot.offset===0?'disabled':''}>Previous</button><span>${snapshot.total ? `${snapshot.offset+1} to ${snapshot.offset+snapshot.entries.length} of ${snapshot.total}` : '0 entries'}</span><button id="audit-next" ${snapshot.offset+snapshot.limit>=snapshot.total?'disabled':''}>Next</button><button id="audit-back">Back to reporting settings</button></div></section>`;

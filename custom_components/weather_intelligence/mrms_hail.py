@@ -80,17 +80,19 @@ class MrmsHailClient:
         try:
             with urlopen(request, timeout=self._timeout_seconds) as response:
                 payload = response.read()
-                self._etag = response.headers.get("ETag") or self._etag
-                self._last_modified = (
-                    response.headers.get("Last-Modified") or self._last_modified
-                )
+                etag = response.headers.get("ETag")
+                last_modified = response.headers.get("Last-Modified")
         except HTTPError as error:
             if error.code == 304:
                 return None
             raise MrmsHailError(f"MRMS returned HTTP {error.code}") from error
         except OSError as error:
             raise MrmsHailError("MRMS hail data could not be downloaded") from error
-        return decode_mrms_mesh(payload, targets)
+        # Do not cache an unreadable response: a later 304 would hide the error.
+        frame = decode_mrms_mesh(payload, targets)
+        self._etag = etag
+        self._last_modified = last_modified
+        return frame
 
 
 class HailMotionTracker:
@@ -163,6 +165,10 @@ def decode_mrms_mesh(
         section7 = sections[7]
     except KeyError as error:
         raise MrmsHailError("MRMS hail payload is missing a required section") from error
+    if any(len(section) < minimum for section, minimum in (
+        (section1, 21), (section3, 72), (section5, 21), (section7, 34),
+    )):
+        raise MrmsHailError("MRMS hail section is truncated")
     if _u16(section3, 12) != 0:
         raise MrmsHailError("Unsupported MRMS grid template")
     if _u16(section5, 9) != 41:
@@ -179,24 +185,31 @@ def decode_mrms_mesh(
     )
     width = _u32(section3, 30)
     height = _u32(section3, 34)
-    subdivisions = _u32(section3, 42) or 1_000_000
-    latitude_first = _signed_u32(section3, 46) / subdivisions
-    longitude_first = _signed_u32(section3, 50) / subdivisions
-    latitude_step = _u32(section3, 67) / subdivisions
-    longitude_step = _u32(section3, 63) / subdivisions
+    basic_angle = _u32(section3, 38)
+    subdivisions = _u32(section3, 42)
+    unit = (basic_angle / subdivisions
+            if basic_angle and subdivisions not in (0, 0xffffffff) else 1e-6)
+    latitude_first = _signed_u32(section3, 46) * unit
+    longitude_first = _signed_u32(section3, 50) * unit
+    latitude_step = _u32(section3, 67) * unit
+    longitude_step = _u32(section3, 63) * unit
     scan_mode = section3[71]
-    if scan_mode != 0 or not width or not height:
+    if scan_mode != 0 or not width or not height or not latitude_step or not longitude_step:
         raise MrmsHailError("Unsupported MRMS scan mode")
 
     reference = struct.unpack(">f", section5[11:15])[0]
     binary_scale = _signed_u16(section5, 15)
     decimal_scale = _signed_u16(section5, 17)
     bits = section5[19]
-    if bits != 16:
+    if bits not in (8, 16):
         raise MrmsHailError("Unsupported MRMS PNG sample depth")
-    factor = (2.0 ** binary_scale) / (10.0 ** decimal_scale)
+    decimal_factor = 10.0 ** (-decimal_scale)
+    reference *= decimal_factor
+    factor = (2.0 ** binary_scale) * decimal_factor
 
     png = section7[5:]
+    if png[:8] != b'\x89PNG\r\n\x1a\n' or png[12:16] != b'IHDR' or png[24] != bits or png[25] != 0:
+        raise MrmsHailError("MRMS packing and grayscale PNG format disagree")
     try:
         with Image.open(BytesIO(png)) as image:
             image.load()
@@ -259,7 +272,8 @@ def _detections_for_target(
     crop = image.crop((left, top, right, bottom))
     active: dict[tuple[int, int], float] = {}
     crop_width, _crop_height = crop.size
-    for index, packed in enumerate(crop.getdata()):
+    pixels = crop.get_flattened_data() if hasattr(crop, 'get_flattened_data') else crop.getdata()
+    for index, packed in enumerate(pixels):
         value_mm = reference + int(packed) * factor
         if value_mm < MRMS_HAIL_THRESHOLD_MM:
             continue
@@ -428,7 +442,8 @@ def _u16(data: bytes, offset: int) -> int:
 
 
 def _signed_u16(data: bytes, offset: int) -> int:
-    return int.from_bytes(data[offset:offset + 2], "big", signed=True)
+    value = _u16(data, offset)
+    return -(value & 0x7fff) if value & 0x8000 else value
 
 
 def _u32(data: bytes, offset: int) -> int:
@@ -436,4 +451,5 @@ def _u32(data: bytes, offset: int) -> int:
 
 
 def _signed_u32(data: bytes, offset: int) -> int:
-    return int.from_bytes(data[offset:offset + 4], "big", signed=True)
+    value = _u32(data, offset)
+    return -(value & 0x7fffffff) if value & 0x80000000 else value

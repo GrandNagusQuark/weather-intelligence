@@ -10,6 +10,13 @@ from .const import DOMAIN
 from .maintainer_reporting import async_setup_reporting, async_stop_reporting, reporting_snapshot
 from .reporting_config import REPORTING_KEY, reporting_config, reporting_update
 from .reporting_audit import async_reporting_audit
+from .reporting_identity import async_saved_reporting_identity
+
+
+async def async_reporting_settings_snapshot(hass: Any, entry: Any) -> dict[str, Any]:
+    snapshot = reporting_snapshot(hass, entry)
+    snapshot['installation_id'] = await async_saved_reporting_identity(hass, entry)
+    return snapshot
 
 
 async def async_save_reporting(hass: Any, entry: Any, payload: dict[str, Any]) -> dict[str, Any]:
@@ -30,7 +37,7 @@ async def async_save_reporting(hass: Any, entry: Any, payload: dict[str, Any]) -
             hass.config_entries.async_update_entry(entry, options={**entry.options,
                 OUTAGE_KEY: {"enabled": False, "consent": False, "policy_version": 1}})
         await async_setup_outages(hass, entry)
-        return reporting_snapshot(hass, entry)
+        return await async_reporting_settings_snapshot(hass, entry)
 
 
 def register_reporting_commands(hass: Any, get_entry: Callable[[Any], Any]) -> None:
@@ -43,7 +50,7 @@ def register_reporting_commands(hass: Any, get_entry: Callable[[Any], Any]) -> N
     @websocket_api.require_admin
     @websocket_api.async_response
     async def get_reporting(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
-        connection.send_result(msg["id"], reporting_snapshot(hass, get_entry(hass)))
+        connection.send_result(msg["id"], await async_reporting_settings_snapshot(hass, get_entry(hass)))
 
     @websocket_api.websocket_command({
         vol.Required("type"): f"{DOMAIN}/reporting/update",

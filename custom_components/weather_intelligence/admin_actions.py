@@ -28,7 +28,7 @@ def notice_message(record: Mapping[str, Any]) -> str:
 
 def account_notice(config: Mapping[str, Any], owner_id: str) -> dict | None:
     record = config.get(ADMIN_ACTION_NOTICES, {}).get(owner_id)
-    if not record:
+    if not record or record.get("dismissed"):
         return None
     return {
         "id": record["id"],
@@ -36,6 +36,28 @@ def account_notice(config: Mapping[str, Any], owner_id: str) -> dict | None:
         "message": notice_message(record),
         "created_at": record["created_at"],
     }
+
+
+async def async_dismiss_account_notice(hass: Any, entry: Any, actor: Any, notice_id: str) -> None:
+    """Acknowledge only the authenticated recipient's current notice, no reload."""
+    from .onboarding_accounts import human_account
+    from .onboarding_notifications import progress_lock
+    actor = await hass.auth.async_get_user(actor.id)
+    if not human_account(actor):
+        raise ValueError("Sign in again before dismissing this notice.")
+    if not isinstance(notice_id, str) or not 1 <= len(notice_id) <= 128:
+        raise ValueError("Use the Dismiss button on the current notice.")
+    async with progress_lock(hass, entry):
+        notices = deepcopy(effective_entry_config(entry).get(ADMIN_ACTION_NOTICES, {}))
+        record = notices.get(actor.id)
+        if not record:
+            return
+        if record.get("id") != notice_id:
+            raise ValueError("This notice changed. Refresh Weather Intelligence before dismissing it.")
+        if record.get("dismissed"):
+            return
+        record["dismissed"] = True
+        hass.config_entries.async_update_entry(entry, options={**entry.options, ADMIN_ACTION_NOTICES:notices})
 
 
 async def async_prepare_admin_notices(
@@ -123,13 +145,15 @@ async def async_deliver_admin_notices(hass: Any, entry: Any) -> None:
 
     notices = deepcopy(effective_entry_config(entry).get(ADMIN_ACTION_NOTICES, {}))
     for owner_id, record in notices.items():
+        if record.get("dismissed"):
+            continue
         owner = await hass.auth.async_get_user(owner_id)
         if not human_account(owner):
             continue
         for device_id in record["device_ids"]:
             latest = deepcopy(effective_entry_config(entry).get(ADMIN_ACTION_NOTICES, {}))
             current = latest.get(owner_id, {})
-            if current.get("id") != record["id"] or device_id in current.get("attempts", {}):
+            if current.get("id") != record["id"] or current.get("dismissed") or device_id in current.get("attempts", {}):
                 continue
             allowed = {device["id"] for device in account_devices(hass, owner_id)}
             mobile = next(

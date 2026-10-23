@@ -13,7 +13,7 @@ if (typeof customElements !== "undefined" && !customElements.get("android-sound-
     connectedCallback(){this.render();}
     render(){
       const step=ANDROID_GUIDE_STEPS[this.index];
-      const channel_name = (this.getAttribute('channel-name') || 'Weather Siren').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+      const channel_name = (this.getAttribute('channel-name') || 'alarm_stream').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
       const step_text = step.text.replaceAll('Weather Siren', channel_name);
       const step_title = step.title.replaceAll('Weather Siren', channel_name);
       const url=new URL(`./images/android-guide/${step.image}`,import.meta.url).href;
@@ -28,7 +28,7 @@ if (typeof customElements !== "undefined" && !customElements.get("android-sound-
         button{padding:10px 14px;border:0;border-radius:8px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);font:inherit}
         button:disabled{opacity:.5;cursor:default}a{color:var(--primary-color)}
         @media(max-width:400px){.picture{width:120px}}
-      </style><small>Samsung Galaxy / One UI example. Other Android phones may use different menu names.</small>
+      </style><small>Older Samsung screenshots show Weather Siren. Use <strong>${channel_name}</strong> on your phone instead. Menu names vary by Android and One UI version. These images do not establish DND bypass; the phone must allow alarm audio.</small>
       <section aria-live="polite"><h3>${this.index+1}. ${step_title}</h3><p>${this.hasAttribute('channel-name') && this.index === 0 ? step_text.replace('SETUP ONLY — ' + channel_name, 'SETUP ONLY — Weather Intelligence') : step_text}</p>
       <div class="picture"><img src="${url}" alt="Samsung screenshot: ${step.title}" width="591" height="1280" loading="lazy">${[...(step.marks||[]).map(mark=>[mark,false]),...(step.optionalMarks||[]).map(mark=>[mark,true])].map(([mark,optional])=>`<span class="mark ${optional?"optional":""}" aria-hidden="true" style="left:${mark[0]*100}%;top:${mark[1]*100}%;width:${mark[2]*100}%;height:${mark[3]*100}%"></span>`).join("")}</div>
       <small class="key"><b>Solid outlines:</b> setup controls.${step.optionalMarks?.length?" <em>Dashed outlines:</em> optional, recommended visibility.":""} Highlights pulse three times; reduced-motion settings use steady outlines.</small>
@@ -37,6 +37,7 @@ if (typeof customElements !== "undefined" && !customElements.get("android-sound-
       this.shadowRoot.querySelector("#previous").onclick=()=>{if(this.index>0){this.index--;this.render();}};
       this.shadowRoot.querySelector("#next").onclick=()=>{if(this.index<ANDROID_GUIDE_STEPS.length-1){this.index++;this.render();}};
       this.shadowRoot.querySelector("#replay").onclick=()=>this.render();
+      this.shadowRoot.querySelector('img').onerror=()=>{const note=this.ownerDocument.createElement('p');note.setAttribute('role','status');note.textContent='Screenshot unavailable. Follow the written instructions above and reload Weather Intelligence after updating.';this.shadowRoot.querySelector('.picture').replaceChildren(note);};
     }
   }
   customElements.define("android-sound-guide",AndroidSoundGuide);

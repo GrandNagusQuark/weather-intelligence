@@ -53,13 +53,31 @@ through Cloudflare to the maintainer's private Home Assistant inbox. The inbox i
 a separate integration and is not installed with public copies of Weather
 Intelligence. Received reports are grouped and retained for 30 days. Enabling it requires reviewing
 the exact destination and approving a fixed set of fields: schema version,
-integration version, Home Assistant version, rounded time, error category,
-component, severity and exception category. For a phone related error, the platform,
-OS release and Companion app release are included when known. Build numbers and
-app flavor are removed. Missing device context stays unknown rather than guessing
-from other household phones. The application payload excludes names, coordinates,
+integration version, Home Assistant version, a random installation number, rounded time, error category,
+component, severity and exception category. Reports now include fixed explanations
+selected from the integration's published source, up to three exception causes,
+up to eight code locations (module, function and line), and HTTP status, OS error
+or process exit codes when supplied by the failure. These details omit absolute
+paths, source lines, local variables, exception arguments, response bodies and
+arbitrary runtime messages. Existing consent must be reviewed before this expanded
+format is sent. Every error also includes available
+platform, OS release and Companion app release combinations for phones enrolled
+in Weather Intelligence, even if the error comes from a server or weather source.
+Up to eight distinct combinations are included without device names or counts.
+Build numbers and app flavor are removed. Missing registration details are marked
+as unavailable. This context does not imply a phone caused the error.
+The application payload excludes names, coordinates,
 credentials, entity and device identifiers, phone serial numbers, MAC and IP
 addresses, custom device names and raw logs.
+
+The random number is generated locally after consent. It groups repeated errors
+from the same installation, so a single installation's repeated failures are not
+mistaken for many affected installations. It is not a Home Assistant account ID
+or a phone hardware ID. It links diagnostic reports, making them pseudonymous.
+Earlier consent did not include all these fields. Reporting pauses and an
+administrator must review the changed scope before updated reports can be sent.
+Administrators can review the exact prepared reports and delivery results in the
+local audit log for 30 days.
 
 Cloudflare can still see network metadata,
 including the connection IP. Reports are not anonymous merely because that IP is
@@ -73,11 +91,9 @@ Shared outage detection has its own choice so an installation can share ordinary
 without contributing to outage detection. Receiving service status does not
 require contributing reports.
 
-Only after separate consent, outage reports use a random identifier generated locally for the
-installation, not a Home Assistant account ID or a phone identifier. That number
-is used only to group the limited information needed to detect service outages.
-It is not attached to ordinary error reports or used to track other activity.
-Because it links outage reports from the same installation, it is pseudonymous,
+Only after separate consent, outage reports use the same random installation
+number as ordinary error reports. It groups the limited information needed to
+detect service outages. Because it links reports from the same installation, it is pseudonymous,
 not completely anonymous. The five fields are schema version, random installation
 ID, the fixed NWS alert source label, unavailable, delayed or recovered, and a UTC time
 rounded to the minute. Contributions use the project destination at
@@ -85,10 +101,13 @@ https://reports.weatherintelligence.app/v1/outages. They do not contain location
 phone information, names or raw errors.
 
 Received observations and exact local sending history are kept for 30 days.
-Turning outage participation off deletes the active local ID. Existing received
-observations stop counting after 15 minutes and expire within 30 days. Enabling
-participation again creates a new ID. Turning error reporting off also turns off
-outage contributions. Existing error reporting consent never authorizes them.
+Turning outage participation off stops contributions without disabling ordinary
+error reporting or deleting its installation number. Turning error reporting off
+removes the active local number and stops outage contributions too. A pending
+consent review preserves an existing number but sends no reports. Existing
+received observations stop counting after 15 minutes and expire within 30 days.
+After reporting is disabled, enabling it again creates a new number. Error
+reporting consent never authorizes outage contributions by itself.
 
 Status checks use https://reports.weatherintelligence.app/v1/status without an
 installation ID. Cloudflare still processes the connection IP under its own

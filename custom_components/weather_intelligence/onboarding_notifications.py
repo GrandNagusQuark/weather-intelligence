@@ -6,10 +6,9 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 from typing import Any, Mapping
-from uuid import uuid4
 
 from .config import effective_entry_config, normalize_profiles, profile_to_dict
-from .const import DOMAIN
+from .const import DOMAIN, ANDROID_SIREN_CHANNEL, ANDROID_SETUP_CHANNEL, android_siren_channel
 from .hazard_policy import alert_choices
 from .models import HouseholdProfile
 from .onboarding_dnd import apply_home_context, dnd_snapshot
@@ -17,7 +16,7 @@ from .saved_device_settings import portable_preferences
 from .marine_preferences import marine_nearby_preferences
 
 NOTIFICATION_STAGES = {"notification_setup", "notification_review", "notification_complete"}
-NOTIFICATION_ACTIONS = {"prepare", "retry_prepare", "permissions", "test", "test_critical", "confirm_test", "confirm_critical", "next", "back", "finish"}
+NOTIFICATION_ACTIONS = {"prepare", "retry_prepare", "simplify_channel", "permissions", "test", "test_critical", "confirm_test", "confirm_critical", "next", "back", "finish"}
 
 
 def progress_lock(hass: Any, entry: Any) -> asyncio.Lock:
@@ -94,8 +93,16 @@ def _context(hass: Any, entry: Any, state: dict, device_id: str) -> tuple[Any, s
     fingerprint = _binding(state, device_id, target, platform, matches)
     progress = state.get("notification_devices", {}).get(device_id, {})
     if progress.get("binding") != fingerprint:
-        progress = {"binding": fingerprint, "urgent_channel": matches[0].get("urgent_channel", "Weather Siren") if matches
-                    else "Weather Siren " + uuid4().hex[:8], "setup_channel": "Weather Setup " + uuid4().hex[:8], "returning": bool(matches)}
+        progress = {"binding": fingerprint, "urgent_channel": matches[0].get("urgent_channel", ANDROID_SIREN_CHANNEL) if matches
+                    else ANDROID_SIREN_CHANNEL, "setup_channel": ANDROID_SETUP_CHANNEL, "returning": bool(matches)}
+    if platform == "android":
+        corrected = android_siren_channel(progress["urgent_channel"])
+        if corrected != progress["urgent_channel"]:
+            # Old test results cannot verify a different audio channel.
+            progress = {"binding": fingerprint, "urgent_channel": corrected,
+                        "setup_channel": ANDROID_SETUP_CHANNEL, "returning": bool(matches)}
+        else:
+            progress = {**progress, "setup_channel": ANDROID_SETUP_CHANNEL}
     return mobile_entry, target, progress, platform, matches
 
 
@@ -144,20 +151,23 @@ def _persist(hass: Any, entry: Any, actor_id: str, state: dict, **extra: Any) ->
 
 async def async_notification_action(hass: Any, entry: Any, actor: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
     from .onboarding_accounts import account_state, async_onboarding_snapshot, human_account
+    from .setup_resume import progress_owner
+    actor = await hass.auth.async_get_user(actor.id)
     if not human_account(actor):
         raise ValueError("An active Home Assistant account is required.")
+    source_id = progress_owner(actor, payload.get("progress_user_id"))
     action = payload.get("action")
     request_id = payload.get("request_id")
     if action not in NOTIFICATION_ACTIONS or not isinstance(request_id, str) or not 8 <= len(request_id) <= 80:
         raise ValueError("Use the notification setup controls.")
     async with progress_lock(hass, entry):
-        state = account_state(effective_entry_config(entry), actor.id)
+        state = account_state(effective_entry_config(entry), source_id)
         command = [action, payload.get("device_id"), payload.get("value"), payload.get("person_id")]
         previous = state.get("notification_request", {})
         if previous.get("id") == request_id:
             if previous.get("command") != command:
                 raise ValueError("This setup request was already used for another action.")
-            return await async_onboarding_snapshot(hass, entry, actor)
+            return await async_onboarding_snapshot(hass, entry, actor, source_id)
         if state.get("revision", 0) != payload.get("expected_revision"):
             raise ValueError("Setup changed in another tab. Reopen onboarding before continuing.")
         if state.get("stage") not in {"notification_setup", "notification_review"}:
@@ -168,7 +178,7 @@ async def async_notification_action(hass: Any, entry: Any, actor: Any, payload: 
             target_user = await hass.auth.async_get_user(state.get("target_user_id"))
             if not human_account(fresh_actor) or not fresh_actor.is_admin or not human_account(target_user):
                 raise ValueError("Only an active administrator can set up another active account's phone.")
-            if account_state(effective_entry_config(entry), actor.id).get("revision", 0) != state["revision"]:
+            if account_state(effective_entry_config(entry), source_id).get("revision", 0) != state["revision"]:
                 raise ValueError("Setup changed in another tab. Reopen onboarding before continuing.")
         ids = selected_devices(state)
         index = state.get("notification_device_index", 0)
@@ -192,7 +202,7 @@ async def async_notification_action(hass: Any, entry: Any, actor: Any, payload: 
                 raise ValueError("Return to phone setup before testing or changing its permissions.")
             if action in {"prepare", "retry_prepare", "test", "test_critical"}:
                 if action == "prepare" and progress.get("setup_attempted"):
-                    return await async_onboarding_snapshot(hass, entry, actor)
+                    return await async_onboarding_snapshot(hass, entry, actor, source_id)
                 if action.startswith("test") and not progress.get("permissions"):
                     raise ValueError("Confirm the phone's notification settings before testing.")
                 if action == "test_critical" and not needs_critical:
@@ -204,20 +214,31 @@ async def async_notification_action(hass: Any, entry: Any, actor: Any, payload: 
                 else:
                     progress["critical_confirmed" if status_key == "critical_status" else "test_confirmed"] = False
                 state["notification_request"] = {"id": request_id, "command": command}
-                _persist(hass, entry, actor.id, state)
+                _persist(hass, entry, source_id, state)
                 profile = HouseholdProfile(profile_id="setup_" + device_id, name="Phone setup", person_entity_id="person.setup",
                     legacy_notify_service=target, mobile_platform=platform, urgent_channel=progress["urgent_channel"])
                 from .mobile_notification import async_send_onboarding_notification
                 try:
-                    await async_send_onboarding_notification(hass, profile,
-                        kind="prepare" if status_key == "setup_status" else "critical" if action == "test_critical" else "normal",
-                        returning=progress.get("returning", False), setup_channel=progress["setup_channel"])
-                    progress[status_key] = "sent"
+                    if action == "prepare" and platform == "android":
+                        # Reused channels can retain an audible sound. Opening
+                        # setup must not ring a phone or create random channels.
+                        progress[status_key] = "manual_required"
+                    else:
+                        await async_send_onboarding_notification(hass, profile,
+                            kind="prepare" if status_key == "setup_status" else "critical" if action == "test_critical" else "normal",
+                            returning=progress.get("returning", False), setup_channel=progress["setup_channel"])
+                        progress[status_key] = "sent"
                 except Exception:
                     # A delivery exception is not proof it never reached the phone.
                     progress[status_key] = "uncertain"
-                if account_state(effective_entry_config(entry), actor.id).get("revision", 0) != state["revision"]:
+                if account_state(effective_entry_config(entry), source_id).get("revision", 0) != state["revision"]:
                     raise ValueError("Setup changed while the notification was being sent. Reopen onboarding before continuing.")
+            elif action == "simplify_channel":
+                if platform != "android":
+                    raise ValueError("Notification categories apply only to Android phones.")
+                progress = {"binding": progress["binding"], "urgent_channel": ANDROID_SIREN_CHANNEL,
+                            "setup_channel": ANDROID_SETUP_CHANNEL, "returning": bool(_matches)}
+                state["notification_devices"][device_id] = progress
             elif action == "permissions":
                 if type(payload.get("value")) is not bool:
                     raise ValueError("Confirm the notification settings on this phone.")
@@ -247,19 +268,21 @@ async def async_notification_action(hass: Any, entry: Any, actor: Any, payload: 
                 else:
                     state["stage"] = "daily_outlook"
             state["notification_request"] = {"id": request_id, "command": command}
-            _persist(hass, entry, actor.id, state)
-    return await async_onboarding_snapshot(hass, entry, actor)
+            _persist(hass, entry, source_id, state)
+    return await async_onboarding_snapshot(hass, entry, actor, source_id)
 
 
 async def _async_finish(hass: Any, entry: Any, actor: Any, state: dict, payload: Mapping[str, Any]) -> None:
     from .onboarding import ONBOARDING_KEY
     from .onboarding_accounts import account_state, human_account
+    from .setup_resume import progress_owner
+    source_id = progress_owner(actor, payload.get("progress_user_id"))
     from .persistence import async_reconcile_profile_reference, async_record_profile_reference
     await async_reconcile_profile_reference(hass, entry)
     fresh_actor = await hass.auth.async_get_user(actor.id)
     if not human_account(fresh_actor):
         raise ValueError("Sign in again before enabling notifications.")
-    if account_state(effective_entry_config(entry), actor.id).get("revision", 0) != state["revision"]:
+    if account_state(effective_entry_config(entry), source_id).get("revision", 0) != state["revision"]:
         raise ValueError("Setup changed before enrollment. Reopen onboarding.")
     target_user_id = state["target_user_id"]
     target_user = await hass.auth.async_get_user(target_user_id)
@@ -308,7 +331,7 @@ async def _async_finish(hass: Any, entry: Any, actor: Any, state: dict, payload:
     from .admin_actions import ADMIN_ACTION_NOTICES, async_prepare_admin_notices, queued_admin_notices
     notices = await async_prepare_admin_notices(hass, fresh_actor, config.get("profiles", []), normalized,
                                                enrollment_owner_id=target_user_id)
-    if (account_state(effective_entry_config(entry), actor.id).get("revision", 0) != state["revision"]
+    if (account_state(effective_entry_config(entry), source_id).get("revision", 0) != state["revision"]
             or effective_entry_config(entry).get("profiles", []) != config.get("profiles", [])):
         raise ValueError("Setup or profiles changed before enrollment. Reopen onboarding.")
     for device_id in selected_devices(state):
@@ -321,26 +344,31 @@ async def _async_finish(hass: Any, entry: Any, actor: Any, state: dict, payload:
     extra = {ONBOARDING_KEY: {**config.get(ONBOARDING_KEY, {}), "initiated": True, "completed": True, "endpoint": "notifications"}}
     if notices:
         extra[ADMIN_ACTION_NOTICES] = queued_admin_notices(effective_entry_config(entry), notices)
-    _persist(hass, entry, actor.id, state, profiles=normalized, **extra)
+    from .const import ANDROID_SIREN_REVIEW_PENDING, ANDROID_SIREN_REVIEW_NOTIFICATION
+    pending = set(config.get(ANDROID_SIREN_REVIEW_PENDING, []))
+    completed_profiles = {profile["profile_id"] for profile in normalized
+                          if profile.get("companion_device_id") in selected_devices(state)}
+    if pending:
+        extra[ANDROID_SIREN_REVIEW_PENDING] = sorted(pending - completed_profiles)
+    _persist(hass, entry, source_id, state, profiles=normalized, **extra)
+    if pending and not extra[ANDROID_SIREN_REVIEW_PENDING]:
+        from homeassistant.components import persistent_notification
+        persistent_notification.async_dismiss(hass, ANDROID_SIREN_REVIEW_NOTIFICATION)
     await async_record_profile_reference(hass, entry)
     # The websocket handler verifies integration activation before returning.
 
 
-async def async_activate_saved_notifications(hass: Any, entry: Any, actor: Any) -> dict[str, Any]:
+async def async_activate_saved_notifications(hass: Any, entry: Any, actor: Any, progress_user_id: str | None = None) -> dict[str, Any]:
     from .onboarding_accounts import account_state, async_onboarding_snapshot
     from .admin_actions import async_deliver_admin_notices
+    from .setup_resume import progress_owner
+    source_id = progress_owner(actor, progress_user_id)
     await async_deliver_admin_notices(hass, entry)
-    panel_data = hass.data.setdefault(DOMAIN, {})
-    panel_data["panel_reset_reload"] = entry.entry_id
-    try:
-        activated = bool(await hass.config_entries.async_reload(entry.entry_id))
-    except Exception:
-        activated = False
-    finally:
-        panel_data.pop("panel_reset_reload", None)
+    from .panel import async_reload_preserving_panel
+    activated = await async_reload_preserving_panel(hass, entry)
     async with progress_lock(hass, entry):
-        state = account_state(effective_entry_config(entry), actor.id)
+        state = account_state(effective_entry_config(entry), source_id)
         if state.get("stage") == "notification_complete":
             state["notification_activation"] = "active" if activated else "failed"
-            _persist(hass, entry, actor.id, state)
-    return await async_onboarding_snapshot(hass, entry, actor)
+            _persist(hass, entry, source_id, state)
+    return await async_onboarding_snapshot(hass, entry, actor, source_id)

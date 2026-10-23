@@ -185,10 +185,17 @@ async def async_actor(hass: Any, connection: Any) -> Any:
     return user
 
 
-async def async_onboarding_snapshot(hass: Any, entry: Any, actor: Any) -> dict[str, Any]:
+async def async_onboarding_snapshot(hass: Any, entry: Any, actor: Any, progress_user_id: str | None = None) -> dict[str, Any]:
     """Expose account names to admins only; no household settings or locations."""
     if not human_account(actor):
         raise ValueError("An active Home Assistant user account is required.")
+    from .setup_resume import progress_owner
+    source_id = progress_owner(actor, progress_user_id)
+    if source_id != actor.id:
+        source = await hass.auth.async_get_user(source_id)
+        fresh = await hass.auth.async_get_user(actor.id)
+        if not human_account(source) or not human_account(fresh) or not fresh.is_admin:
+            raise ValueError("Only an active administrator can resume this setup.")
     config = effective_entry_config(entry)
     from .admin_actions import account_notice
     from .profile_preferences import own_preferences_available
@@ -202,10 +209,10 @@ async def async_onboarding_snapshot(hass: Any, entry: Any, actor: Any) -> dict[s
         config = effective_entry_config(entry)
     accounts = await hass.auth.async_get_users() if actor.is_admin else [actor]
     accounts = [user for user in accounts if human_account(user)]
-    state = account_state(config, actor.id)
+    state = account_state(config, source_id)
     await async_prepare_avalanche_regions(hass, state)
     config = effective_entry_config(entry)
-    state = account_state(config, actor.id)
+    state = account_state(config, source_id)
     apply_home_context(state, hass)
     target = next((user for user in accounts if user.id == state.get("target_user_id", actor.id)), None)
     if target is None or (target.id != actor.id and not actor.is_admin):
@@ -226,6 +233,7 @@ async def async_onboarding_snapshot(hass: Any, entry: Any, actor: Any) -> dict[s
     snapshot = onboarding_snapshot({**config, ONBOARDING_KEY: state}, testing=hass.data.get(DOMAIN, {}).get("onboarding_testing", False))
     snapshot.update({"stage": state.get("stage", "choice" if state.get("initiated") else "welcome"), "revision": state.get("revision", 0), "target_user_id": target.id, "device_count": state.get("device_count"), "selected_device_id": selected_device if device_available else None, "selected_device_unavailable": bool(selected_device and not device_available), "alert_path": state.get("alert_path") if state.get("alert_path") in ALERT_PATHS else None})
     snapshot["alert_setup"] = alert_setup_snapshot(state)
+    snapshot["progress_user_id"] = source_id
     page = snapshot["alert_setup"].get("page")
     if page and page["id"] == "hurricane warning":
         page["title"] = "Typhoon" if state.get("regional_tropical_event") == "typhoon" else "Hurricane"
@@ -271,13 +279,21 @@ async def async_save_account_progress(hass: Any, entry: Any, actor: Any, payload
 
 
 async def _async_save_account_progress(hass: Any, entry: Any, actor: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
+    from .setup_resume import progress_owner
+    source_id = progress_owner(actor, payload.get("progress_user_id"))
+    if source_id != actor.id:
+        actor = await hass.auth.async_get_user(actor.id)
+        source = await hass.auth.async_get_user(source_id)
+        if not human_account(actor) or not human_account(source):
+            raise ValueError("Sign in again before changing setup.")
+        progress_owner(actor, source_id)
     accounts = await hass.auth.async_get_users() if actor.is_admin else [actor]
     active_ids = {user.id for user in accounts if human_account(user)}
-    current = account_state(effective_entry_config(entry), actor.id)
+    current = account_state(effective_entry_config(entry), source_id)
     await async_prepare_avalanche_regions(hass, current)
     # The optional boundary download can yield while another tab saves.
     # Validate the client's revision against the latest state, not that old read.
-    current = account_state(effective_entry_config(entry), actor.id)
+    current = account_state(effective_entry_config(entry), source_id)
     apply_home_context(current, hass)
     if current.get("target_user_id", actor.id) not in active_ids or (not actor.is_admin and current.get("target_user_id", actor.id) != actor.id):
         current.update({"target_user_id": actor.id, "device_count": None, "stage": "device_setup" if current.get("setup_mode") == "quick" else "choice"})
@@ -317,10 +333,10 @@ async def _async_save_account_progress(hass: Any, entry: Any, actor: Any, payloa
             raise ValueError("Choose an available device before continuing.")
     # Read/merge at write time. Saving actor A's workflow cannot overwrite B.
     states = dict(effective_entry_config(entry).get(ACCOUNT_PROGRESS, {}))
-    states[actor.id] = state
+    states[source_id] = state
     capture_latest(library, state, account_devices(hass, actor.id), actor.id, previous_drafts=current.get("device_drafts", {}))
     hass.config_entries.async_update_entry(entry, options={**entry.options, ACCOUNT_PROGRESS: states, SAVED_DEVICE_SETTINGS: library})
     if state.get("marine_warning_mode") in {"always", "on_water"}:
         from .onboarding_preferences import async_apply_saved_marine_preferences
         await async_apply_saved_marine_preferences(hass, entry)
-    return await async_onboarding_snapshot(hass, entry, actor)
+    return await async_onboarding_snapshot(hass, entry, actor, source_id)
