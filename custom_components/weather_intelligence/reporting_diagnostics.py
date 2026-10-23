@@ -9,7 +9,8 @@ import json
 from pathlib import Path
 import sys
 
-CATALOG = json.loads(Path(__file__).with_name('diagnostic_catalog.json').read_text(encoding='utf-8'))
+from .diagnostic_catalog import CATALOG
+
 MESSAGES = CATALOG['messages']
 MESSAGE_IDS = {value: key for key, value in MESSAGES.items()}
 EXCEPTION_TYPES = frozenset(CATALOG['exceptions'])
