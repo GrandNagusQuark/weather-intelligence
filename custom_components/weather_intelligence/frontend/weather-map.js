@@ -1,13 +1,34 @@
 // Small client-only map. NOAA renders radar; we draw official GeoJSON polygons.
 // No radar processing, location history, or developer telemetry on the HA host.
 import {createVectorBasemap} from "./weather-basemap.js?v=2";
-const NOAA_RADAR = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/export";
+import {RadarOverlay, radarFrameLabel} from "./radar-overlay.js?v=1";
 const NOAA_WARNINGS = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/WWA/watch_warn_adv/MapServer/0/query";
 const NOAA_WARNING_AREAS = "https://mapservices.weather.noaa.gov/eventdriven/rest/services/WWA/watch_warn_adv/MapServer/1/query";
 const NOAA_REFERENCE = "https://mapservices.weather.noaa.gov/static/rest/services/nws_reference_maps/nws_reference_map/MapServer";
 const CENSUS_ROAD_TILES = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Transportation/MapServer/tile";
 const WORLD = 40075016.68557849;
 const SVG_NS = "http://www.w3.org/2000/svg";
+const RADAR_OPACITY_KEY = "weather-intelligence.radar-opacity";
+
+export function radarOpacity(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return 65;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : 65;
+}
+
+// Request real display pixels, not just CSS pixels. NOAA accepts up to 4096
+// pixels on either axis. Bound the whole frame as well, including wrapped parts,
+// so a wide/high-density display cannot allocate an unbounded radar image.
+// Supersampling improves presentation; it does not add detail to the 1 km data.
+export function radarImageSize(width, height, pixelRatio = 1) {
+  const cssWidth = Math.max(1, Number.isFinite(width) ? width : 1);
+  const cssHeight = Math.max(1, Number.isFinite(height) ? height : 1);
+  const desiredScale = Math.max(2, Math.min(3, Number.isFinite(pixelRatio) ? pixelRatio : 1));
+  const scale = Math.min(desiredScale, 4096 / cssWidth, 4096 / cssHeight,
+    Math.sqrt(4194304 / (cssWidth * cssHeight)));
+  return {width: Math.max(1, Math.floor(cssWidth * scale)),
+    height: Math.max(1, Math.floor(cssHeight * scale))};
+}
 
 export function warningStyle(event) {
   const name = String(event || "Unnamed official warning");
@@ -208,9 +229,10 @@ export class WeatherRadarMap extends HTMLElement {
     this.shadowRoot.innerHTML = `<style>
       :host{display:block}.map{height:390px;position:relative;overflow:hidden;border-radius:12px;background:#1e2b38;isolation:isolate;touch-action:pan-y;user-select:none}.map.dragging{cursor:grabbing}@media(hover:hover){.map{cursor:grab}}
       .tiles,.radar,.polygons,.people{position:absolute;inset:0;pointer-events:none}.tiles img{position:absolute;width:256px;height:256px;max-width:none}
-      .radar img,.radar-frame,.tiles img{position:absolute;left:0;top:0;max-width:none;opacity:.78;transform-origin:0 0}.radar-frame{opacity:1}.polygons svg{width:100%;height:100%;overflow:visible}.polygons path.warning{pointer-events:visiblePainted;cursor:pointer}
+      .radar img,.radar-frame,.tiles img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0}.tiles img{opacity:.78}.radar img{opacity:var(--radar-opacity,.65)}.polygons svg{width:100%;height:100%;overflow:visible}.polygons path.warning{pointer-events:visiblePainted;cursor:pointer}
       .tiles.census{filter:invert(1) hue-rotate(180deg) saturate(.65) brightness(1.05);mix-blend-mode:screen}
       .controls{position:absolute;top:10px;left:10px;display:flex;gap:5px;flex-wrap:wrap;max-width:80%}button{background:#172330;color:white;border:1px solid #607080;border-radius:6px;padding:8px 11px;cursor:pointer}
+      .radar-controls{display:flex;align-items:center;gap:8px;max-width:310px;margin-top:5px;font-size:12px;color:var(--secondary-text-color)}.radar-controls label{white-space:nowrap}.radar-controls input{flex:1;min-width:50px;width:140px;height:32px;margin:0;accent-color:var(--primary-color,#55b6ff);touch-action:pan-y}.radar-controls output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}.radar-controls input:focus-visible{outline:2px solid var(--primary-color,#76caff);outline-offset:2px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
       .person{position:absolute;transform:translate(-50%,-50%);border-radius:50%;border:1px solid white;background:#136db5;color:white;width:20px;height:20px;padding:0;line-height:20px;text-align:center;font:600 11px/20px system-ui;white-space:nowrap;box-shadow:0 0 2px #233544;pointer-events:auto;cursor:pointer}
       .person.stale,.key-marker.stale{background:#526579;border-style:dashed}.home-marker{position:absolute;transform:translate(-50%,-50%);font:bold 20px system-ui;color:#c9ddf0;text-shadow:0 0 2px #0e1a25}
       .people-key{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px;color:var(--primary-text-color)}.key-marker{display:inline-block;border-radius:50%;background:#136db5;color:white;width:20px;height:20px;font:600 11px/20px system-ui;text-align:center;margin-right:5px}
@@ -225,6 +247,12 @@ export class WeatherRadarMap extends HTMLElement {
       <div class="controls"><button data-zoom="1" aria-label="Zoom in">+</button><button data-zoom="-1" aria-label="Zoom out">−</button></div>
       <div class="gesture-hint" hidden></div>
       <div class="attribution"></div></div>
+      <div class="radar-controls" title="Saved in this browser. Changes only the radar, not warnings or markers.">
+        <label for="radar-opacity">Radar opacity</label>
+        <input id="radar-opacity" type="range" min="0" max="100" step="1" value="65" aria-valuetext="65 percent" aria-describedby="radar-opacity-help">
+        <output id="radar-opacity-value" for="radar-opacity">65%</output>
+      </div>
+      <span class="sr-only" id="radar-opacity-help">Saved in this browser. Changes only the radar, not warnings or markers.</span>
       <div class="interaction-help" id="interaction-help">Drag to pan · Shift + scroll to zoom · On phones, use two fingers to move or pinch to zoom.</div>
       <div class="interaction-help">Map warnings may appear after official issuance. Follow the official alert.</div>
       <div class="people-key" aria-label="Person marker key"></div>
@@ -233,6 +261,7 @@ export class WeatherRadarMap extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-zoom]").forEach(button => button.onclick = () => {
       this._changeZoom(Number(button.dataset.zoom));
     });
+    this._initRadarOpacity();
     this._vectorEnabled = this.getAttribute("basemap") === "openfreemap";
     const attribution = this.shadowRoot.querySelector(".attribution");
     attribution.innerHTML = this._vectorEnabled ? `Radar/boundaries: NOAA/NWS · <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> · <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a>` : "Radar/boundaries: NOAA/NWS · Roads: U.S. Census Bureau";
@@ -260,10 +289,61 @@ export class WeatherRadarMap extends HTMLElement {
     this._legendSignature = null;
     this._loadLegend();
     this._timer = setInterval(() => {if (!document.hidden && this.offsetParent !== null) {this._loadView(); this._loadLegend();}}, 300000);
+    this._radarTimer = setInterval(() => {
+      if (!document.hidden && this.offsetParent !== null && !this._drag && !this._touchGesture && !this._zoomMotion) this._refreshRadar();
+    }, 60000);
     this._legendExpiryTimer = setInterval(() => this._drawLegend(), 60000);
   }
 
-  disconnectedCallback() {clearInterval(this._timer); clearInterval(this._legendExpiryTimer); this._legendRequest?.abort(); clearTimeout(this._resizeTimer); clearTimeout(this._hintTimer); clearTimeout(this._zoomTimer); clearTimeout(this._panFetchTimer); clearTimeout(this._tileTimer); cancelAnimationFrame(this._panFrame); this._zoomMotion = null; this._endDrag(null, true); this._touchGesture = null; this._resize?.disconnect(); this._request?.abort(); this._vectorMap?.remove(); this._vectorMap=null;}
+  disconnectedCallback() {clearInterval(this._timer); clearInterval(this._radarTimer); this._radarRenderer?.dispose(); this._radarRenderer=null; clearInterval(this._legendExpiryTimer); this._legendRequest?.abort(); clearTimeout(this._resizeTimer); clearTimeout(this._hintTimer); clearTimeout(this._zoomTimer); clearTimeout(this._panFetchTimer); clearTimeout(this._tileTimer); cancelAnimationFrame(this._panFrame); this._zoomMotion = null; this._endDrag(null, true); this._touchGesture = null; this._resize?.disconnect(); this._request?.abort(); this._vectorMap?.remove(); this._vectorMap=null;}
+
+  _initRadarOpacity() {
+    let saved;
+    try { saved = window.localStorage.getItem(RADAR_OPACITY_KEY); } catch (_error) { /* Browser storage may be disabled. */ }
+    this._setRadarOpacity(saved);
+    this.shadowRoot.querySelector("#radar-opacity").oninput = event => this._setRadarOpacity(event.target.value, true);
+  }
+
+  _setRadarOpacity(value, persist = false) {
+    const percent = radarOpacity(value), slider = this.shadowRoot.querySelector("#radar-opacity");
+    this.shadowRoot.querySelector(".radar").style.setProperty("--radar-opacity", String(percent / 100));
+    slider.value = String(percent);
+    slider.setAttribute("aria-valuetext", `${percent} percent`);
+    this.shadowRoot.querySelector("#radar-opacity-value").textContent = `${percent}%`;
+    if (persist) {
+      try { window.localStorage.setItem(RADAR_OPACITY_KEY, String(percent)); } catch (_error) { /* Keep the current-page choice usable. */ }
+    }
+  }
+
+  _refreshRadar() {
+    const {width,height,bbox}=this._view();
+    if (width<1 || height<1) return;
+    if(this._radarProduct) {
+      this._statuses.radar=radarFrameLabel(this._radarProduct)+(this._radarFailed ? ' Refresh unavailable — older image retained.' : '');
+      this._status();
+    }
+    const view={center:[...this._center],zoom:this._zoom,width,height,bbox,
+      regions:wrappedViewParts(bbox,width),imageSize:radarImageSize(width,height,window.devicePixelRatio||1)};
+    this._radarLoading=this._loadRadar(view);
+  }
+
+  async _loadRadar(view) {
+    const request=this._radarGeneration=(this._radarGeneration||0)+1;
+    this._radarRenderer ||= new RadarOverlay();
+    try {
+      const product=await this._radarRenderer.load(view);
+      if(request!==this._radarGeneration || !this.isConnected)return;
+      const root=this.shadowRoot.querySelector('.radar');
+      root.replaceChildren(product.frame);this._radarExtent=view;this._radarProduct=product;this._radarFailed=false;
+      this._positionRaster(root,view,this._renderedVectorView||this._rasterView());
+      this._statuses.radar=radarFrameLabel(product);this._status();
+    } catch (_error) {
+      if(request!==this._radarGeneration || !this.isConnected)return;
+      this._radarFailed=true;
+      this._statuses.radar=this._radarProduct ? `${radarFrameLabel(this._radarProduct)} Refresh unavailable — older image retained; do not infer clear weather.` : 'Radar unavailable — not an indication of clear weather.';
+      this._status();
+    }
+  }
 
   async _loadLegend() {
     this._legendRequest?.abort();
@@ -574,7 +654,7 @@ export class WeatherRadarMap extends HTMLElement {
   async _loadView() {
     if (!this.isConnected || document.hidden || this.offsetParent === null || this._zoomMotion || this._drag || this._touchGesture) return;
     const {width, height, origin, bbox} = this._view();
-    if (width < 1) return;
+    if (width < 1 || height < 1) return;
     const generation = this._generation = (this._generation || 0) + 1;
     this._requestInFlight=true;
     this._request?.abort();
@@ -589,16 +669,8 @@ export class WeatherRadarMap extends HTMLElement {
     const referenceRequest = this._loadReference(bbox, width, height, generation, controller.signal, view);
     this._warnings = this._warnings.filter(feature => {const until=Date.parse(feature.properties?.expiration); return !Number.isFinite(until) || until>Date.now();});
     this._drawOverlays();
-    const regions=wrappedViewParts(bbox,width),frame=document.createElement('div');frame.className='radar-frame';
-    let remaining=regions.length,failed=false;
-    for(const region of regions){
-      const params = new URLSearchParams({f: "image", bbox: region.bbox.join(","), bboxSR: "3857", imageSR: "3857", size: `${Math.max(1,Math.round(region.width))},${height}`, format: "png32", transparent: "true", layers: "show:3", _ts: String(Math.floor(Date.now() / 300000))});
-      const radar = document.createElement("img"); radar.alt = "Latest available NOAA radar reflectivity";
-      radar.style.left=`${region.left}px`;radar.style.width = `${region.width}px`; radar.style.height = `${height}px`;frame.append(radar);
-      radar.onload = () => {if (generation !== this._generation||failed||--remaining) return; this._radarExtent=view; radarRoot.replaceChildren(frame); this._positionRaster(radarRoot,view,this._renderedVectorView||this._rasterView()); this._statuses.radar = this._zoom>=13 ? "Street zoom does not increase radar resolution." : ""; this._status();};
-      radar.onerror = () => {failed=true;if (generation === this._generation) {this._statuses.radar = this._radarExtent ? "Radar refresh unavailable — older image retained; do not infer clear weather." : "Radar unavailable — not an indication of clear weather."; this._status();}};
-      radar.src = `${NOAA_RADAR}?${params}`;
-    }
+    const regions=wrappedViewParts(bbox,width);
+    this._refreshRadar();
     try {
       const parts=await Promise.all(regions.flatMap(region=>{
       const query = new URLSearchParams({f: "geojson", where: stormWarningWhere(this._selectedEvents), geometry: region.bbox.join(","), geometryType: "esriGeometryEnvelope", inSR: "3857", outSR: "4326", spatialRel: "esriSpatialRelIntersects", outFields: "objectid,prod_type,expiration,cap_id,url", returnGeometry: "true", resultRecordCount: "200", geometryPrecision:"5"});

@@ -34,8 +34,13 @@ export function installExistingSetup(panel,{copySettings,back}) {
     q('#edit-existing-heading').textContent='Choose a device';
     q('#existing-device-context').textContent=panel._config.actor.is_admin?'Choose any household device, including an unfinished setup.':'Choose the device you want to edit.';
     q('#existing-setup-status').textContent=snapshot?.profiles.length?'':'No device setup is saved yet. Choose Quick setup or Custom setup to select a device.';
-    q('#existing-device-picker').innerHTML=(snapshot?.profiles||[]).map((profile,index)=>`<button class="setup-choice" data-existing-device="${index}">${panel._escape(profile.name || 'Device')}</button>`).join('');
+    q('#existing-device-picker').innerHTML=(snapshot?.profiles||[]).map((profile,index)=>`<button class="setup-choice" data-existing-device="${index}">${panel._escape(profile.name || 'Device')}</button>`).join('')+
+      (snapshot?.active_draft_profiles||[]).map((profile,index)=>`<button class="setup-choice" data-existing-current="${index}"><strong>${panel._escape(profile.name || 'Device')} — edit current alerts</strong><span>Change the alerts already running on this device without finishing or replacing its saved onboarding draft.</span></button>`).join('');
     q('#existing-device-picker').querySelectorAll('[data-existing-device]').forEach(button=>button.onclick=()=>choose(snapshot.profiles[Number(button.dataset.existingDevice)]));
+    q('#existing-device-picker').querySelectorAll('[data-existing-current]').forEach(button=>button.onclick=()=>run(async()=>{
+      const profile=snapshot.active_draft_profiles[Number(button.dataset.existingCurrent)];
+      panel._alertEditor.openProfiles({...snapshot,profiles:[profile]},draft=>panel._saveExistingAlertPreferences(draft),{initialSection:'alerts'});
+    }));
   }
   async function reset(){
     const current=++generation;snapshot=null;showDevices();q('#existing-setup-status').textContent='Loading saved devices…';
@@ -43,7 +48,7 @@ export function installExistingSetup(panel,{copySettings,back}) {
       const reply=await panel._hass.callWS({type:'weather_intelligence/preferences/get'});
       if(current!==generation)return;
       const unfinished=reply.unfinished_setups||[],pending=new Set(unfinished.map(item=>item.companion_device_id).filter(Boolean));
-      snapshot={...reply,profiles:[...reply.profiles.filter(profile=>!pending.has(profile.companion_device_id)),...unfinished]};showDevices();
+      snapshot={...reply,active_draft_profiles:reply.profiles.filter(profile=>pending.has(profile.companion_device_id)),profiles:[...reply.profiles.filter(profile=>!pending.has(profile.companion_device_id)),...unfinished]};showDevices();
     }catch(error){if(current===generation)q('#existing-setup-status').textContent=error.message || 'Could not load devices. Go back and try again.';}
   }
   async function run(callback){

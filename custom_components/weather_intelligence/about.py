@@ -149,9 +149,16 @@ def about_snapshot(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
                     _source(
                         "noaa_maps",
                         "NOAA and NWS map services",
-                        "Radar images, warning boundaries and reference maps.",
+                        "Radar mosaics, warning boundaries and reference maps. Closer views use NOAA GeoServer super resolution reflectivity when a nearby station covers the map. The published scan age is shown below it.",
                         "https://mapservices.weather.noaa.gov/",
                         "Used when viewing the map",
+                    ),
+                    _source(
+                        "noaa_detailed_radar",
+                        "NOAA detailed radar",
+                        "Super resolution reflectivity images and scan times from individual radars. The NWS directory helps choose a station. Images are cached in your browser. Map requests reveal the viewed area to NOAA.",
+                        "https://opengeo.ncep.noaa.gov/geoserver/",
+                        "Used when viewing detailed radar",
                     ),
                     _source(
                         "usgs",

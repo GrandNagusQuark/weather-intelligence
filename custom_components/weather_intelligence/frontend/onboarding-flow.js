@@ -3,7 +3,7 @@ import {GUIDED_QUESTIONS,installGuidedSetup} from './onboarding-guided-ui.js?v=7
 import {installAlertSelection,renderSelectableAlerts} from './onboarding-alert-ui.js?v=8';
 import {installDndSetup,renderDndSetup} from './onboarding-dnd-ui.js?v=4';
 import {installSavedDeviceSettings} from './saved-device-settings.js?v=2';
-import {installExistingSetup} from './setup-edit-ui.js?v=2';
+import {installExistingSetup} from './setup-edit-ui.js?v=3';
 import {installNotificationSetup} from './onboarding-notifications-ui.js?v=8';
 import {installMarineNearby,renderMarineNearby} from './marine-preferences-ui.js?v=2';
 

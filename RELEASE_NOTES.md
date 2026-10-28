@@ -1,4 +1,33 @@
-# Weather Intelligence 0.1.34-alpha
+# Weather Intelligence 0.1.35-alpha
+
+Clearer radar, a simple opacity slider, and daily outlook fixes.
+
+## Radar
+
+- Zoom in for NOAA's super-resolution reflectivity when a nearby radar covers the map. Wider views use the regional mosaic, which also stays available if the detailed feed is missing or delayed.
+- Both radar products are cached. The current image stays visible until its replacement has finished loading, so switching does not blank the map.
+- The map checks NOAA's published scan times instead of downloading the same image over and over. It shows the displayed scan's age and warns when imagery is delayed.
+- A small slider below the map adjusts radar opacity. It starts at 65%, remembers your choice in that browser, and leaves warnings and household markers alone.
+- Radar images render more clearly on high-density screens. Zooming cannot add detail beyond what the radar source provides.
+
+Detailed reflectivity can show echoes from things other than rain, including
+ground clutter. Use official alerts for warning decisions.
+
+## Daily outlooks and setup
+
+- Fixed daily outlooks losing the forecast when severe-weather awareness was turned off. That setting now controls the extra weather notices, not your daily forecast.
+- Outlooks include the high, low and rain chance when those details are available from NWS.
+- If the forecast is unavailable, the outlook waits and tries again instead of sending only an incomplete-weather message. Once accepted, it is not sent again that day; yesterday's outlook is never sent after midnight.
+- A busy weather day no longer pushes the forecast out of the briefing's short list of concerns.
+- You can edit an enrolled device's current alerts even if its onboarding is unfinished, without restarting setup.
+
+## After updating
+
+Restart Home Assistant, then refresh the Weather Intelligence page. Your saved
+settings and reporting choices stay the same. This remains an early release;
+keep official warning sources available alongside it.
+
+## Previous release: 0.1.34-alpha
 
 This update fixes hail monitoring, makes error reports useful for diagnosing problems, and smooths out setup and everyday settings.
 

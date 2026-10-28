@@ -23,6 +23,10 @@ source directory inside the app.
 
 - [NOAA and NWS map services](https://mapservices.weather.noaa.gov/) provide radar
   images, warning boundaries and reference maps.
+- [NOAA GeoServer](https://opengeo.ncep.noaa.gov/geoserver/) provides
+  single-station super-resolution base reflectivity for closer views. The
+  [NWS radar station directory](https://api.weather.gov/radar/stations) supplies
+  station locations. Radar is context, not a replacement for official warnings.
 - [USGS 3D Hydrography Program](https://www.usgs.gov/3d-hydrography-program/access-3dhp-data-products)
   provides regional water outlines.
 - [U.S. Army Corps of Engineers](https://spatial.usace.army.mil/opjarcgis/rest/services/ehydro/ChannelReach/FeatureServer/0)

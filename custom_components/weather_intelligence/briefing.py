@@ -37,6 +37,9 @@ class DailyBriefing:
     items: tuple[BriefingItem, ...]
     source_states: Mapping[str, SupplementalSourceState]
     fingerprint: str
+    # A daily forecast is not an opt-in hazard item. Keep it outside the capped,
+    # preference-filtered safety list, even when its prose mentions wind or snow.
+    forecast: BriefingItem | None = None
 
     @property
     def incomplete(self) -> bool:
@@ -71,6 +74,8 @@ def build_daily_briefing(
         item.forecast_summary,
         item.forecast_details,
     ) for item in supplemental)
+    forecast = next((item for item in items
+                     if item.source == "NWS forecast" and item.forecast_summary), None)
     # Ordering is presentation priority only; the native labels remain authoritative.
     order = {DeliveryBehavior.CRITICAL: 0, DeliveryBehavior.IMPORTANT: 1,
              DeliveryBehavior.NOTICE: 2, DeliveryBehavior.AWARENESS: 3,
@@ -97,12 +102,12 @@ def build_daily_briefing(
     token_source = "|".join(f"{item.source}:{item.headline}:{item.native_level}:{item.valid_to}" for item in compact)
     token_source += "|" + "|".join(f"{key}:{value.value}" for key, value in sorted(states.items()))
     token = sha256(token_source.encode()).hexdigest()
-    return DailyBriefing(now, state, summary, compact, states, token)
+    return DailyBriefing(now, state, summary, compact, states, token, forecast)
 
 
 def briefing_message(briefing: DailyBriefing) -> tuple[str, str]:
     """Return a one-glance briefing; include only a source-stated severe ETA."""
-    forecast = next(
+    forecast = briefing.forecast or next(
         (
             item
             for item in briefing.items
@@ -111,17 +116,17 @@ def briefing_message(briefing: DailyBriefing) -> tuple[str, str]:
         next((item for item in briefing.items if item.source == "NWS forecast"), None),
     )
     sentences = []
-    if forecast is not None:
+    if forecast is not None and forecast.forecast_summary:
+        sentences.append(forecast.forecast_summary)
+    elif forecast is not None:
         condition = forecast.headline.split(":", 1)[-1].strip()
         temperature = (
             f", near {forecast.native_level}"
             if "°" in forecast.native_level else ""
         )
         sentences.append(f"Today expect {condition}{temperature}.")
-    elif briefing.incomplete:
-        sentences.append("Today's weather picture is incomplete.")
     else:
-        sentences.append("Today, no significant weather hazards are expected.")
+        sentences.append("Today's forecast is not available yet.")
 
     safety_items = tuple(item for item in briefing.items if not item.routine_forecast)
     severe = next(
@@ -134,7 +139,9 @@ def briefing_message(briefing: DailyBriefing) -> tuple[str, str]:
         elif forecast is None or severe is not forecast:
             sentences.append("Severe weather is possible today.")
     elif safety_items:
-        concern = safety_items[0].native_level or safety_items[0].headline
+        concern = (safety_items[0].headline.split(":", 1)[-1].strip()
+                   if safety_items[0].source == "NWS forecast"
+                   else safety_items[0].native_level or safety_items[0].headline)
         sentences.append(f"{concern} is expected today.")
     return "Daily Weather Briefing", " ".join(sentences)
 

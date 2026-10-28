@@ -1,7 +1,7 @@
-import "./weather-map.js?v=aligned-world-4";
+import "./weather-map.js?v=scan-aware-7";
 import {AndroidOnboarding, ANDROID_SOUND_STEPS} from "./android-onboarding.js?v=5";
 import {WELCOME_SCREEN, welcomeRequired} from "./welcome-screen.js?v=36";
-import {installProductionOnboarding} from "./onboarding-flow.js?v=19";
+import {installProductionOnboarding} from "./onboarding-flow.js?v=20";
 import {renderAdminActionNotice,bindAdminActionNotice} from "./admin-action-notice.js?v=2";
 import {ProfileAlertEditor} from "./profile-alert-editor.js?v=14";
 import {DEVICE_HELP, accountTiles} from "./device-setup.js?v=5";

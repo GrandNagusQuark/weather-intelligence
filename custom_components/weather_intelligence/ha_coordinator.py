@@ -654,7 +654,9 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
         self, point: tuple[float, float], now: datetime
     ) -> tuple[tuple[Any, ...], dict[str, SupplementalSourceState]]:
         cached = self._supplemental_cache.get(point)
-        if cached is not None and now - cached[0] < timedelta(minutes=15):
+        # An unavailable forecast should not suppress recovery for fifteen minutes.
+        cache_minutes = 15 if cached and cached[2].get("NWS forecast") == SupplementalSourceState.HEALTHY else 2
+        if cached is not None and now - cached[0] < timedelta(minutes=cache_minutes):
             return cached[1], dict(cached[2])
         supplemental = []
         states: dict[str, SupplementalSourceState] = {}
@@ -664,10 +666,14 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                 response = await self.hass.async_add_executor_job(
                     partial(fetch_forecast, point)
                 )
-                supplemental.extend(normalize_nws_forecast(response.payload))
-                states["NWS forecast"] = SupplementalSourceState.HEALTHY
+                forecast_items = normalize_nws_forecast(response.payload)
+                supplemental.extend(forecast_items)
+                states["NWS forecast"] = (SupplementalSourceState.HEALTHY
+                    if any(item.forecast_summary for item in forecast_items)
+                    else SupplementalSourceState.DEGRADED)
             except (NwsClientError, ValueError, TypeError) as error:
-                _LOGGER.error("Direct NWS forecast request failed: %s", type(error).__name__)
+                _LOGGER.error("Direct NWS forecast request failed: %s", type(error).__name__,
+                              extra={"wi_exception": error})
                 states["NWS forecast"] = SupplementalSourceState.DEGRADED
         else:
             states["NWS forecast"] = SupplementalSourceState.DEGRADED
@@ -740,9 +746,23 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
             scoped_briefing = self._profile_briefings.get(
                 profile.profile_id, self.briefing
             )
+            effective_location = self._profile_briefing_locations.get(
+                profile.profile_id, profile.briefing_location
+            )
+            required_briefings = (self._profile_briefing_parts.get(profile.profile_id, ())
+                if effective_location == BRIEFING_LOCATION_BOTH else (scoped_briefing,))
+            if not required_briefings or any(
+                part.forecast is None
+                or part.source_states.get("NWS forecast") != SupplementalSourceState.HEALTHY
+                or (part.forecast.valid_to is not None and part.forecast.valid_to <= now)
+                for part in required_briefings
+            ):
+                # No empty fallback and no daily claim: the next source refresh
+                # can still deliver today's forecast. Separate hazard alerts continue.
+                continue
             visible_items = tuple(
                 item for item in scoped_briefing.items
-                if briefing_item_enabled(profile,item)
+                if briefing_item_enabled(profile,item) and _relevant_on_local_day(item, local_now)
             )
             profile_briefing = DailyBriefing(
                 scoped_briefing.generated_at,
@@ -751,11 +771,9 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                  if visible_items else "No current concern in the selected hazard families."),
                 visible_items, scoped_briefing.source_states,
                 sha256("|".join(f"{item.source}:{item.headline}:{item.native_level}" for item in visible_items).encode()).hexdigest(),
+                scoped_briefing.forecast,
             )
             title, message = briefing_message(profile_briefing)
-            effective_location = self._profile_briefing_locations.get(
-                profile.profile_id, profile.briefing_location
-            )
             if effective_location == BRIEFING_LOCATION_BOTH:
                 part_messages = []
                 for label, part in zip(
@@ -766,7 +784,7 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                     part_items = tuple(
                         item
                         for item in part.items
-                        if briefing_item_enabled(profile,item)
+                        if briefing_item_enabled(profile,item) and _relevant_on_local_day(item, local_now)
                     )
                     part_briefing = DailyBriefing(
                         part.generated_at,
@@ -777,6 +795,7 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                         part_items,
                         part.source_states,
                         _briefing_items_fingerprint(part_items),
+                        part.forecast,
                     )
                     _part_title, part_message = briefing_message(part_briefing)
                     part_messages.append(f"{label}: {part_message}")
@@ -796,7 +815,8 @@ class WeatherIntelligenceDataUpdateCoordinator(DataUpdateCoordinator[Coordinator
                 profile_briefing.summary,
                 same_day_items,
                 profile_briefing.source_states,
-                _briefing_items_fingerprint(same_day_items),
+                _briefing_items_fingerprint((*same_day_items, profile_briefing.forecast)),
+                profile_briefing.forecast,
             )
             urgency = _briefing_urgency(same_day_briefing)
             prior = self._briefing_records.get(profile.profile_id)

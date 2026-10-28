@@ -33,7 +33,10 @@ requests under their own policies.
 
 USGS water and USACE channel requests identify coarse map regions. MRMS hail data
 is downloaded as a national grid and analyzed locally. Viewing the map contacts
-map and radar providers and can reveal the viewed area. Opening an external source
+map and radar providers and can reveal the viewed area. NOAA map services supply
+the mosaic, and NOAA GeoServer supplies detailed single-station radar. The browser
+checks published scan times and caches both image types; the radar-opacity choice
+is stored in that browser. Opening an external source
 link contacts that website.
 
 Phone delivery uses Home Assistant and the phone platform's push services. Remote

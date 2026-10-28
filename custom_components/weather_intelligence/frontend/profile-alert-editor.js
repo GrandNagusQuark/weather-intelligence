@@ -1,6 +1,6 @@
 import {ALERT_CHOICE_SCREEN} from './alert-setup.js?v=23';
 import {ALERT_SELECTION_STYLE,installTierCards,renderSelectableAlerts} from './onboarding-alert-ui.js?v=8';
-import {alertRiskPresentation} from './onboarding-flow.js?v=19';
+import {alertRiskPresentation} from './onboarding-flow.js?v=20';
 import {profileAlertEvents,tierEvents,tierState,toggleProfileTier,renderProfileAlertGrid} from './profile-alert-choices.js?v=4';
 import {ProfileDndEditor} from './profile-dnd-editor.js?v=4';
 import {marineNearbyControls,installMarineNearby,renderMarineNearby} from './marine-preferences-ui.js?v=2';

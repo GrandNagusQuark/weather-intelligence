@@ -40,7 +40,7 @@ from .mobile_notification import (
 PANEL_URL = "weather-intelligence"
 PANEL_ELEMENT = "weather-intelligence-panel"
 PANEL_MODULE_URL = (
-    "/weather_intelligence_static/weather-intelligence-panel.js?v=0.1.34-alpha-review-1"
+    "/weather_intelligence_static/weather-intelligence-panel.js?v=0.1.35-alpha-briefing-1"
 )
 
 

@@ -147,9 +147,10 @@ def _outlook(briefing: Any, name: str, scope: str, profile: Any = None) -> dict[
     # One current-day forecast, then relevant safety details; no extended periods.
     items = tuple(item for item in briefing.items if not item.routine_forecast and item.source != "NWS forecast"
                   and (profile is None or briefing_item_enabled(profile,item)))
-    forecast = next((getattr(item,"forecast_summary",None) for item in briefing.items
+    current_forecast = getattr(briefing, "forecast", None)
+    forecast = getattr(current_forecast, "forecast_summary", None) or next((getattr(item,"forecast_summary",None) for item in briefing.items
                      if getattr(item,"forecast_summary",None)),None)
-    forecast_item = next((item for item in briefing.items if item.source == "NWS forecast"),None)
+    forecast_item = current_forecast or next((item for item in briefing.items if item.source == "NWS forecast"),None)
     if not forecast and forecast_item is not None:
         forecast = "Today's forecast: " + forecast_item.headline.split(":",1)[-1].strip().rstrip(".") + "."
     summary = " ".join(part for part in (forecast,_short_headline(items[0]) if items else "No current weather concerns." if forecast else None) if part) or "Today's forecast is not available yet."
