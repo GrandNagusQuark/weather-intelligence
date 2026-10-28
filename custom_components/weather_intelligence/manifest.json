@@ -2,6 +2,7 @@
   "domain": "weather_intelligence",
   "name": "Weather Intelligence",
   "after_dependencies": ["mqtt", "person", "mobile_app"],
+  "categories": ["weather_alerts"],
   "codeowners": ["@GrandNagusQuark"],
   "config_flow": true,
   "dependencies": ["http", "persistent_notification"],
@@ -11,5 +12,5 @@
   "issue_tracker": "https://github.com/GrandNagusQuark/weather-intelligence/issues",
   "requirements": ["shapely==2.1.2"],
   "single_config_entry": true,
-"version": "0.1.35-alpha"
+  "version": "0.1.35-alpha"
 }
