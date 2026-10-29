@@ -1,4 +1,21 @@
-# Weather Intelligence 0.1.35-alpha
+# Weather Intelligence 0.1.36-alpha
+
+Fixed the Android siren setup reminder coming back after every Home Assistant
+restart, even after you dismissed it.
+
+- Dismissing the reminder is now remembered after restarts and integration reloads.
+- Your alert choices, notification devices, and DND settings stay unchanged.
+- Dismissing a reminder does not mark the phone's sound tests as completed. You
+  can still review mobile alert permissions whenever you need to.
+- A newly affected device can still receive a setup reminder.
+
+Restart Home Assistant after updating. If the reminder is already showing,
+dismiss it once after that restart. This update also includes the radar and daily
+outlook improvements from 0.1.35-alpha.
+
+This remains an early release. Keep official warning sources available alongside it.
+
+## Previous release: 0.1.35-alpha
 
 Clearer radar, a simple opacity slider, and daily outlook fixes.
 
