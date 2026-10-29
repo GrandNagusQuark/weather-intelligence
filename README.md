@@ -7,7 +7,7 @@ code locations and applicable HTTP or system error codes. Administrators can see
 the exact data and delivery result in the local audit log. Raw log text, local
 variables and filesystem paths are excluded; updated reporting requires review.
 
-Local test build. This revision has not been published to GitHub or HACS.
+This release is available through HACS. See the release notes for what changed.
 
 ![Weather Intelligence](https://raw.githubusercontent.com/GrandNagusQuark/weather-intelligence/main/custom_components/weather_intelligence/brand/icon.png)
 
